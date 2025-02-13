@@ -94,9 +94,9 @@ def build_metrics_aggregators(experiment, output_dir, aggregator_metric_dir):
 def get_aggregator_config(experiment):
     if experiment == 'open_loop_boxes':
         name = 'open_loop_boxes_weighted_average'
-        metric_weights = {'planner_expert_average_l2_error_within_bound': 1, 
+        metric_weights = {'planner_expert_average_l2_error_within_bound': 1,
                           'planner_expert_average_heading_error_within_bound': 2,
-                          'planner_expert_final_l2_error_within_bound': 1, 
+                          'planner_expert_final_l2_error_within_bound': 1,
                           'planner_expert_final_heading_error_within_bound': 2,
                           'default': 1.0}
         file_name = "open_loop_boxes_weighted_average_metrics"
@@ -111,10 +111,10 @@ def get_aggregator_config(experiment):
                           'ego_is_comfortable': 2.0,
                           'default': 1.0}
         file_name = "closed_loop_agents_weighted_average_metrics"
-        multiple_metrics = ['no_ego_at_fault_collisions', 'drivable_area_compliance', 
+        multiple_metrics = ['no_ego_at_fault_collisions', 'drivable_area_compliance',
                             'ego_is_making_progress', 'driving_direction_compliance']
         challenge_name = 'closed_loop_nonreactive_agents'
-        
+
     elif experiment == 'closed_loop_reactive_agents':
         name = 'closed_loop_reactive_agents_weighted_average'
         metric_weights = {'ego_progress_along_expert_route': 5.0,
@@ -123,7 +123,7 @@ def get_aggregator_config(experiment):
                           'ego_is_comfortable': 2.0,
                           'default': 1.0}
         file_name = "closed_loop_agents_weighted_average_metrics"
-        multiple_metrics = ['no_ego_at_fault_collisions', 'drivable_area_compliance', 
+        multiple_metrics = ['no_ego_at_fault_collisions', 'drivable_area_compliance',
                             'ego_is_making_progress', 'driving_direction_compliance']
         challenge_name = 'closed_loop_reactive_agents'
 
@@ -214,8 +214,7 @@ def get_scenario_map():
 
 
 def get_filter_parameters(num_scenarios_per_type=None, limit_total_scenarios=None):
-    scenario_types = [
-        'starting_left_turn',
+    scenario_types = [        'starting_left_turn',
         'starting_right_turn',
         'starting_straight_traffic_light_intersection_traversal',
         #'stopping_with_lead',
@@ -228,8 +227,7 @@ def get_filter_parameters(num_scenarios_per_type=None, limit_total_scenarios=Non
         #'stationary_in_traffic',
         'near_multiple_vehicles',
         'changing_lane',
-        'following_lane_with_lead',
-    ]
+        'following_lane_with_lead',]
 
     scenario_tokens = None              # List of scenario tokens to include
     log_names = None                     # Filter scenarios by log names
@@ -241,7 +239,7 @@ def get_filter_parameters(num_scenarios_per_type=None, limit_total_scenarios=Non
     ego_displacement_minimum_m = None    # Whether to remove scenarios where the ego moves less than a certain amount
 
     expand_scenarios = False           # Whether to expand multi-sample scenarios to multiple single-sample scenarios
-    remove_invalid_goals = True         # Whether to remove scenarios where the mission goal is invalid
+    remove_invalid_goals = False         # Whether to remove scenarios where the mission goal is invalid
     shuffle = False                      # Whether to shuffle the scenarios
 
     ego_start_speed_threshold = None     # Limit to scenarios where the ego reaches a certain speed from below
@@ -289,7 +287,7 @@ def get_high_level_metrics(low_level_metrics):
                                                          ego_lon_jerk_metric=low_level_metrics['ego_lon_jerk'],
                                                          ego_yaw_acceleration_metric=low_level_metrics['ego_yaw_acceleration'],
                                                          ego_yaw_rate_metric=low_level_metrics['ego_yaw_rate']),
-        'ego_is_making_progress': EgoIsMakingProgressStatistics(name='ego_is_making_progress', category='Planning', 
+        'ego_is_making_progress': EgoIsMakingProgressStatistics(name='ego_is_making_progress', category='Planning',
                                                                 ego_progress_along_expert_route_metric=low_level_metrics['ego_progress_along_expert_route'],
                                                                 metric_score_unit='bool', min_progress_threshold=0.2),
         'no_ego_at_fault_collisions': EgoAtFaultCollisionStatistics(name='no_ego_at_fault_collisions', category='Dynamics', metric_score_unit='float',
@@ -303,10 +301,10 @@ def get_high_level_metrics(low_level_metrics):
         'planner_expert_final_l2_error_within_bound': PlannerExpertFinalL2ErrorStatistics(name='planner_expert_final_l2_error_within_bound', category='Planning',
                                                         metric_score_unit='float', max_final_l2_error_threshold=8,
                                                         planner_expert_average_l2_error_within_bound_metric=low_level_metrics['planner_expert_average_l2_error_within_bound']),
-        'planner_miss_rate_within_bound': PlannerMissRateStatistics(name='planner_miss_rate_within_bound', category='Planning', metric_score_unit='bool', 
+        'planner_miss_rate_within_bound': PlannerMissRateStatistics(name='planner_miss_rate_within_bound', category='Planning', metric_score_unit='bool',
                                                         max_displacement_threshold=[6.0, 8.0, 16.0], max_miss_rate_threshold=0.3,
                                                         planner_expert_average_l2_error_within_bound_metric=low_level_metrics['planner_expert_average_l2_error_within_bound']),
-        'speed_limit_compliance': SpeedLimitComplianceStatistics(name='speed_limit_compliance', category='Violations', metric_score_unit='float', 
+        'speed_limit_compliance': SpeedLimitComplianceStatistics(name='speed_limit_compliance', category='Violations', metric_score_unit='float',
                                                      max_violation_threshold=1.0, max_overspeed_value_threshold=2.23, lane_change_metric=low_level_metrics['ego_lane_change'])
     }
 
@@ -327,7 +325,7 @@ def get_metrics_config(experiment, low_level_metrics, high_level_metrics):
                    high_level_metrics['planner_expert_final_heading_error_within_bound'],
                    high_level_metrics['planner_expert_average_heading_error_within_bound']
         ]
-    
+
     elif experiment == 'closed_loop_nonreactive_agents' or experiment == 'closed_loop_reactive_agents':
         metrics = [low_level_metrics['ego_lane_change'], low_level_metrics['ego_jerk'],
                    low_level_metrics['ego_lat_acceleration'], low_level_metrics['ego_lon_acceleration'],
@@ -338,7 +336,7 @@ def get_metrics_config(experiment, low_level_metrics, high_level_metrics):
                    high_level_metrics['ego_is_comfortable'], high_level_metrics['ego_is_making_progress'],
                    high_level_metrics['driving_direction_compliance']
         ]
-    
+
     else:
         raise TypeError("Experiment type not supported!")
 

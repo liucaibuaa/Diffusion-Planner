@@ -20,7 +20,7 @@ class DataProcessor(object):
         self._scenarios = scenarios
 
         self.past_time_horizon = 2 # [seconds]
-        self.num_past_poses = 10 * self.past_time_horizon 
+        self.num_past_poses = 10 * self.past_time_horizon
         self.future_time_horizon = 8 # [seconds]
         self.max_target_speed = 15 # [m/s]
         self.first_stage_horizon = 3 # [seconds]
@@ -35,7 +35,7 @@ class DataProcessor(object):
 
     def get_ego_agent(self):
         self.anchor_ego_state = self.scenario.initial_ego_state
-        
+
         past_ego_states = self.scenario.get_ego_past_trajectory(
             iteration=0, num_samples=self.num_past_poses, time_horizon=self.past_time_horizon
         )
@@ -52,7 +52,7 @@ class DataProcessor(object):
         past_time_stamps_tensor = sampled_past_timestamps_to_tensor(past_time_stamps)
 
         return past_ego_states_tensor, past_time_stamps_tensor
-    
+
     def get_neighbor_agents(self):
         present_tracked_objects = self.scenario.initial_tracked_objects.tracked_objects
         past_tracked_objects = [
@@ -68,7 +68,7 @@ class DataProcessor(object):
 
         return past_tracked_objects_tensor_list, past_tracked_objects_types
 
-    def get_map(self):        
+    def get_map(self):
         ego_state = self.scenario.initial_ego_state
         ego_coords = Point2D(ego_state.rear_axle.x, ego_state.rear_axle.y)
         route_roadblock_ids = self.scenario.get_route_roadblock_ids()
@@ -78,7 +78,7 @@ class DataProcessor(object):
             self.map_api, self._map_features, ego_coords, self._radius, route_roadblock_ids, traffic_light_data
         )
 
-        vector_map = map_process(ego_state.rear_axle, coords, traffic_light_data, self._map_features, 
+        vector_map = map_process(ego_state.rear_axle, coords, traffic_light_data, self._map_features,
                                  self._max_elements, self._max_points, self._interpolation_method)
 
         return vector_map
@@ -96,7 +96,7 @@ class DataProcessor(object):
         )
 
         return trajectory_relative_poses
-    
+
     def get_neighbor_agents_future(self, agent_index):
         current_ego_state = self.scenario.initial_ego_state
         present_tracked_objects = self.scenario.initial_tracked_objects.tracked_objects
@@ -114,7 +114,7 @@ class DataProcessor(object):
         agent_futures = agent_future_process(current_ego_state, future_tracked_objects_tensor_list, self.num_agents, agent_index)
 
         return agent_futures
-    
+
     def get_ego_candidate_trajectories(self):
         planner = SplinePlanner(self.first_stage_horizon, self.future_time_horizon)
 
@@ -170,7 +170,7 @@ class DataProcessor(object):
 
         # Initial tree (root node)
         # traj: x, y, heading, velocity, acceleration, curvature, time
-        state = torch.tensor([[0, 0, 0, ego_state.dynamic_car_state.rear_axle_velocity_2d.x, 
+        state = torch.tensor([[0, 0, 0, ego_state.dynamic_car_state.rear_axle_velocity_2d.x,
                                ego_state.dynamic_car_state.rear_axle_acceleration_2d.x, 0, 0]])
         tree = TrajTree(state, None, 0)
 
@@ -186,12 +186,12 @@ class DataProcessor(object):
         # Get all leaves
         leaves = TrajTree.get_children(leaves)
         second_trajs = np.stack([leaf.total_traj[1:].numpy() for leaf in leaves]).astype(np.float32)
-        
+
         return first_trajs, second_trajs
 
     def plot_scenario(self, data):
         # Create map layers
-        create_map_raster(data['lanes'], data['crosswalks'], data['route_lanes'])
+        # create_map_raster(data['lanes'], data['crosswalks'], data['route_lanes'])
 
         # Create agent layers
         create_ego_raster(data['ego_agent_past'][-1])
@@ -241,19 +241,19 @@ class DataProcessor(object):
                 continue
 
             # check if the candidate trajectories are valid
-            expert_error_1 = np.linalg.norm(ego_agent_future[None, self.first_stage_horizon*10-1, :2] 
+            expert_error_1 = np.linalg.norm(ego_agent_future[None, self.first_stage_horizon*10-1, :2]
                                             - first_stage_trajs[:, -1, :2], axis=-1)
-            expert_error_2 = np.linalg.norm(ego_agent_future[None, self.future_time_horizon*10-1, :2] 
-                                            - second_stage_trajs[:, -1, :2], axis=-1)       
+            expert_error_2 = np.linalg.norm(ego_agent_future[None, self.future_time_horizon*10-1, :2]
+                                            - second_stage_trajs[:, -1, :2], axis=-1)
             if np.min(expert_error_1) > 1.5 and np.min(expert_error_2) > 4:
                 continue
-            
+
             # sort the candidate trajectories
             first_stage_trajs = first_stage_trajs[np.argsort(expert_error_1)]
-            second_stage_trajs = second_stage_trajs[np.argsort(expert_error_2)]            
+            second_stage_trajs = second_stage_trajs[np.argsort(expert_error_2)]
 
             # gather data
-            data = {"map_name": map_name, "token": token, "ego_agent_past": ego_agent_past, "ego_agent_future": ego_agent_future, 
+            data = {"map_name": map_name, "token": token, "ego_agent_past": ego_agent_past, "ego_agent_future": ego_agent_future,
                     "first_stage_ego_trajectory": first_stage_trajs, "second_stage_ego_trajectory": second_stage_trajs,
                     "neighbor_agents_past": neighbor_agents_past, "neighbor_agents_future": neighbor_agents_future}
             data.update(vector_map)
@@ -270,7 +270,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Data Processing')
     parser.add_argument('--debug', action="store_true", help='if visualize the data output', default=False)
     parser.add_argument('--data_path', type=str, help='path to the data')
-    parser.add_argument('--map_path', type=str, help='path to the map')    
+    parser.add_argument('--map_path', type=str, help='path to the map')
     parser.add_argument('--save_path', type=str, help='path to save the processed data')
     parser.add_argument('--total_scenarios', type=int, help='total number of scenarios', default=None)
 
@@ -280,12 +280,12 @@ if __name__ == "__main__":
     map_version = "nuplan-maps-v1.0"
     scenario_mapping = ScenarioMapping(scenario_map=get_scenario_map(), subsample_ratio_override=0.5)
     builder = NuPlanScenarioBuilder(args.data_path, args.map_path, None, None, map_version, scenario_mapping=scenario_mapping)
-    scenario_filter = ScenarioFilter(*get_filter_parameters(num_scenarios_per_type=30000, 
+    scenario_filter = ScenarioFilter(*get_filter_parameters(num_scenarios_per_type=30000,
                                                             limit_total_scenarios=args.total_scenarios))
     worker = SingleMachineParallelExecutor(use_process_pool=True)
     scenarios = builder.get_scenarios(scenario_filter, worker)
     print(f"Total number of training scenarios: {len(scenarios)}")
-    
+
     del worker, builder, scenario_filter
     processor = DataProcessor(scenarios)
     processor.work(args.save_path, debug=args.debug)
