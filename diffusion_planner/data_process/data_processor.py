@@ -1,6 +1,6 @@
 import numpy as np
 
-from nuplan.common.actor_state.vehicle_parameters import get_pacifica_parameters
+# from nuplan.common.actor_state.vehicle_parameters import get_pacifica_parameters
 from nuplan.common.actor_state.state_representation import Point2D
 from nuplan.planning.scenario_builder.nuplan_db.nuplan_scenario_utils import ScenarioMapping
 from nuplan.planning.scenario_builder.nuplan_db.nuplan_scenario_builder import NuPlanScenarioBuilder
@@ -31,7 +31,7 @@ class DataProcessor(object):
         self._map_features = ['LANE', 'LEFT_BOUNDARY', 'RIGHT_BOUNDARY', 'ROUTE_LANES'] # name of map features to be extracted.
         self._max_elements = {'LANE': 40, 'LEFT_BOUNDARY': 10, 'RIGHT_BOUNDARY': 10, 'ROUTE_LANES': 10} # maximum number of elements to extract per feature layer.
         self._max_points = {'LANE': 50, 'LEFT_BOUNDARY': 50, 'RIGHT_BOUNDARY': 50, 'ROUTE_LANES': 50} # maximum number of points per feature to extract per feature layer.
-        self._vehicle_parameters = get_pacifica_parameters()
+        # self._vehicle_parameters = get_pacifica_parameters()
 
         self._scenarios = scenarios
         self.past_time_horizon = 2 #[seconds]
