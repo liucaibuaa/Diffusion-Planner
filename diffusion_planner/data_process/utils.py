@@ -457,3 +457,22 @@ def sampled_tracked_objects_to_tensor_list(past_tracked_objects):
         output_types.append(agent_types)
 
     return output, output_types
+
+
+def sampled_tracked_objects_to_tensor(tracked_objects):
+    """
+    Tensorizes the agents features from the provided past detections.
+    For N past detections, output is a list of length N, with each tensor as described in `_extract_agent_tensor()`.
+    :param past_tracked_objects: The tracked objects to tensorize.
+    :return: The tensorized objects.
+    """
+    object_types = [TrackedObjectType.VEHICLE, TrackedObjectType.PEDESTRIAN, TrackedObjectType.BICYCLE]
+    output = []
+    output_types = []
+    track_token_ids = {}
+
+    tensorized, track_token_ids, agent_types = _extract_agent_tensor(tracked_objects, track_token_ids, object_types)
+    output.append(tensorized)
+    output_types.append(agent_types)
+
+    return output, output_types
