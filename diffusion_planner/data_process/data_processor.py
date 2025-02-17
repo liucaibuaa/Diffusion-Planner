@@ -7,6 +7,7 @@ from nuplan.planning.scenario_builder.nuplan_db.nuplan_scenario_builder import N
 from nuplan.planning.scenario_builder.scenario_filter import ScenarioFilter
 from nuplan.planning.utils.multithreading.worker_parallel import SingleMachineParallelExecutor
 from nuplan.planning.utils.multithreading.worker_pool import Task
+from tqdm import tqdm
 
 from diffusion_planner.data_process.roadblock_utils import route_roadblock_correction
 from diffusion_planner.data_process.agent_process import (
@@ -21,7 +22,7 @@ get_filter_parameters
 )
 
 class DataProcessor(object):
-    def __init__(self, config, scenarios):
+    def __init__(self, scenarios):
 
         self.num_agents = 20 #[int]
         self.num_static = 20 #[int]
@@ -77,6 +78,16 @@ class DataProcessor(object):
         data = convert_to_model_inputs(data, device)
 
         return data
+
+    def work(self, save_dir, debug=False):
+      for scenario in tqdm(self._scenarios):
+         map_name = scenario._map_name
+         token = scenario.token
+         self.scenario = scenario
+         self.map_api = scenario.map_api
+
+         # get agent past tracks
+         
 
 if __name__ == "__main__":
   map_version = "nuplan-maps-v1.0"
