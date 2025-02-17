@@ -7,6 +7,7 @@ from nuplan.planning.scenario_builder.nuplan_db.nuplan_scenario_builder import N
 from nuplan.planning.scenario_builder.scenario_filter import ScenarioFilter
 from nuplan.planning.utils.multithreading.worker_parallel import SingleMachineParallelExecutor
 from nuplan.planning.utils.multithreading.worker_pool import Task
+
 from tqdm import tqdm
 
 from diffusion_planner.data_process.roadblock_utils import route_roadblock_correction
@@ -18,7 +19,19 @@ sampled_static_objects_to_array_list
 from diffusion_planner.data_process.map_process import get_neighbor_vector_set_map, map_process
 from diffusion_planner.data_process.utils import (convert_to_model_inputs,
 get_scenario_map,
-get_filter_parameters
+get_filter_parameters,
+sampled_tracked_objects_to_tensor_list
+)
+
+from nuplan.planning.training.preprocessing.utils.agents_preprocessing import (
+    AgentInternalIndex,
+    EgoInternalIndex,
+    sampled_past_ego_states_to_tensor,
+    sampled_past_timestamps_to_tensor,
+    compute_yaw_rate_from_state_tensors,
+    filter_agents_tensor,
+    pack_agents_tensor,
+    pad_agent_states
 )
 
 class DataProcessor(object):
@@ -37,6 +50,8 @@ class DataProcessor(object):
         self._scenarios = scenarios
         self.past_time_horizon = 2 #[seconds]
         self._interpolation_method = 'linear' # Interpolation method to apply when interpolating to maintain fixed size map elements.
+
+        self.num_past_poses = 10 * self.past_time_horizon
 
     def observation_adapter(self, history_buffer, traffic_light_data, map_api, route_roadblock_ids, device='cpu'):
 
@@ -79,6 +94,41 @@ class DataProcessor(object):
 
         return data
 
+    def get_ego_agent(self):
+        self.anchor_ego_state = self.scenario.initial_ego_state
+
+        past_ego_states = self.scenario.get_ego_past_trajectory(
+            iteration=0, num_samples=self.num_past_poses, time_horizon=self.past_time_horizon
+        )
+
+        sampled_past_ego_states = list(past_ego_states) + [self.anchor_ego_state]
+        past_ego_states_tensor = sampled_past_ego_states_to_tensor(sampled_past_ego_states)
+
+        past_time_stamps = list(
+            self.scenario.get_past_timestamps(
+                iteration=0, num_samples=self.num_past_poses, time_horizon=self.past_time_horizon
+            )
+        ) + [self.scenario.start_time]
+
+        past_time_stamps_tensor = sampled_past_timestamps_to_tensor(past_time_stamps)
+
+        return past_ego_states_tensor, past_time_stamps_tensor
+
+
+    def get_neighbor_agents(self):
+        present_tracked_objects = self.scenario.initial_tracked_objects.tracked_objects
+        past_tracked_objects = [
+            tracked_objects.tracked_objects
+            for tracked_objects in self.scenario.get_past_tracked_objects(
+                iteration=0, time_horizon=self.past_time_horizon, num_samples=self.num_past_poses
+            )
+        ]
+
+        sampled_past_observations = past_tracked_objects + [present_tracked_objects]
+        past_tracked_objects_tensor_list, past_tracked_objects_types = \
+            sampled_tracked_objects_to_tensor_list(sampled_past_observations)
+
+        return past_tracked_objects_tensor_list, past_tracked_objects_types
     def work(self, save_dir, debug=False):
       for scenario in tqdm(self._scenarios):
          map_name = scenario._map_name
@@ -87,7 +137,7 @@ class DataProcessor(object):
          self.map_api = scenario.map_api
 
          # get agent past tracks
-         
+
 
 if __name__ == "__main__":
   map_version = "nuplan-maps-v1.0"

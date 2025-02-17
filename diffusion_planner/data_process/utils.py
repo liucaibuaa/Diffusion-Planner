@@ -12,7 +12,7 @@ import numpy as np
 import torch
 
 from nuplan.planning.training.preprocessing.utils.agents_preprocessing import EgoInternalIndex, AgentInternalIndex
-
+from nuplan.common.actor_state.tracked_objects_types import TrackedObjectType
 
 # =====================
 # 1. Ego, agent, static coordination transformation
@@ -404,3 +404,56 @@ def get_filter_parameters(num_scenarios_per_type=None, limit_total_scenarios=Non
 
     return scenario_types, scenario_tokens, log_names, map_names, num_scenarios_per_type, limit_total_scenarios, timestamp_threshold_s, ego_displacement_minimum_m, \
            expand_scenarios, remove_invalid_goals, shuffle, ego_start_speed_threshold, ego_stop_speed_threshold, speed_noise_tolerance
+
+########## Network input features ##########
+def _extract_agent_tensor(tracked_objects, track_token_ids, object_types):
+    """
+    Extracts the relevant data from the agents present in a past detection into a tensor.
+    Only objects of specified type will be transformed. Others will be ignored.
+    The output is a tensor as described in AgentInternalIndex
+    :param tracked_objects: The tracked objects to turn into a tensor.
+    :track_token_ids: A dictionary used to assign track tokens to integer IDs.
+    :object_type: TrackedObjectType to filter agents by.
+    :return: The generated tensor and the updated track_token_ids dict.
+    """
+    agents = tracked_objects.get_tracked_objects_of_types(object_types)
+    agent_types = []
+    output = torch.zeros((len(agents), AgentInternalIndex.dim()), dtype=torch.float32)
+    max_agent_id = len(track_token_ids)
+
+    for idx, agent in enumerate(agents):
+        if agent.track_token not in track_token_ids:
+            track_token_ids[agent.track_token] = max_agent_id
+            max_agent_id += 1
+        track_token_int = track_token_ids[agent.track_token]
+
+        output[idx, AgentInternalIndex.track_token()] = float(track_token_int)
+        output[idx, AgentInternalIndex.vx()] = agent.velocity.x
+        output[idx, AgentInternalIndex.vy()] = agent.velocity.y
+        output[idx, AgentInternalIndex.heading()] = agent.center.heading
+        output[idx, AgentInternalIndex.width()] = agent.box.width
+        output[idx, AgentInternalIndex.length()] = agent.box.length
+        output[idx, AgentInternalIndex.x()] = agent.center.x
+        output[idx, AgentInternalIndex.y()] = agent.center.y
+        agent_types.append(agent.tracked_object_type)
+
+    return output, track_token_ids, agent_types
+
+def sampled_tracked_objects_to_tensor_list(past_tracked_objects):
+    """
+    Tensorizes the agents features from the provided past detections.
+    For N past detections, output is a list of length N, with each tensor as described in `_extract_agent_tensor()`.
+    :param past_tracked_objects: The tracked objects to tensorize.
+    :return: The tensorized objects.
+    """
+    object_types = [TrackedObjectType.VEHICLE, TrackedObjectType.PEDESTRIAN, TrackedObjectType.BICYCLE]
+    output = []
+    output_types = []
+    track_token_ids = {}
+
+    for i in range(len(past_tracked_objects)):
+        tensorized, track_token_ids, agent_types = _extract_agent_tensor(past_tracked_objects[i], track_token_ids, object_types)
+        output.append(tensorized)
+        output_types.append(agent_types)
+
+    return output, output_types
