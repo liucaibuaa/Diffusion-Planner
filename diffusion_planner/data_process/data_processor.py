@@ -34,7 +34,7 @@ from nuplan.planning.training.preprocessing.utils.agents_preprocessing import (
     pack_agents_tensor,
     pad_agent_states
 )
-
+import os, torch
 class DataProcessor(object):
     def __init__(self, scenarios, device):
 
@@ -197,12 +197,26 @@ class DataProcessor(object):
          data.update(vector_map)
          data = convert_to_model_inputs(data, self.device)
 
+        # generate file name by log name + token + scenario type
+         file_name = f"{processor.scenario.log_name}_{processor.scenario.token}_{processor.scenario.scenario_type}.pt"
+
+        # 确保文件名合法（移除特殊字符）
+         file_name = file_name.replace(":", "_").replace("/", "_").replace(" ", "_")
+
+        # 指定存放路径
+         os.makedirs(save_path, exist_ok=True)  # 确保目录存在
+
+        # 完整文件路径
+         file_path = os.path.join(save_path, file_name)
+         torch.save(data, file_path)
+
+
 
 if __name__ == "__main__":
   map_version = "nuplan-maps-v1.0"
-  data_path = "/cailiu2/Diffusion-Planner/data"
-  map_path = "/cailiu2/Diffusion-Planner/data/maps"
-  save_path = "/cailiu2/Diffusion-Planner/data/processed"
+  data_path = "/share/data_cold/open_data/nuplan/nuplan-v1.1/trainval"
+  map_path = "/share/data_cold/open_data/nuplan/maps"
+  save_path = "/share/data_cold/abu_zone/multi_sensor_fusion/fusion/laneline/train/nuplan_processed"
   total_scenarios = 30000
   scenario_mapping = ScenarioMapping(scenario_map=get_scenario_map(), subsample_ratio_override=0.5)
   builder = NuPlanScenarioBuilder(data_path, map_path, None, None, map_version, scenario_mapping = scenario_mapping)
@@ -212,6 +226,6 @@ if __name__ == "__main__":
   scenarios = builder.get_scenarios(scenario_filter, worker)
   del worker, builder, scenario_filter
   processor = DataProcessor(scenarios)
-  processor.work(save_path, debug=False)
+  processor.work(save_path,save_path, debug=False)
 
 
