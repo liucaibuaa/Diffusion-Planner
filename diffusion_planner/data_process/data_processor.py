@@ -20,7 +20,8 @@ from diffusion_planner.data_process.map_process import get_neighbor_vector_set_m
 from diffusion_planner.data_process.utils import (convert_to_model_inputs,
 get_scenario_map,
 get_filter_parameters,
-sampled_tracked_objects_to_tensor_list
+sampled_tracked_objects_to_tensor_list,
+sampled_tracked_objects_to_tensor
 )
 
 from nuplan.planning.training.preprocessing.utils.agents_preprocessing import (
@@ -35,10 +36,10 @@ from nuplan.planning.training.preprocessing.utils.agents_preprocessing import (
 )
 
 class DataProcessor(object):
-    def __init__(self, scenarios):
+    def __init__(self, scenarios, device):
 
-        self.num_agents = 20 #[int]
-        self.num_static = 20 #[int]
+        self.num_agents = 30 #[int]
+        self.num_static = 30 #[int]
         self.max_ped_bike = 10 # Limit the number of pedestrians and bicycles in the agent.
         self._radius = 80 # [m] query radius scope relative to the current pose.
 
@@ -52,6 +53,7 @@ class DataProcessor(object):
         self._interpolation_method = 'linear' # Interpolation method to apply when interpolating to maintain fixed size map elements.
 
         self.num_past_poses = 10 * self.past_time_horizon
+        self.device = device
 
     def observation_adapter(self, history_buffer, traffic_light_data, map_api, route_roadblock_ids, device='cpu'):
 
@@ -136,7 +138,64 @@ class DataProcessor(object):
          self.scenario = scenario
          self.map_api = scenario.map_api
 
-         # get agent past tracks
+         """
+         ego
+         """
+         ego_state = self.scenario.initial_ego_state
+         ego_coords = Point2D(ego_state.rear_axle.x, ego_state.rear_axle.y)
+         anchor_ego_state = np.array([ego_state.rear_axle.x, ego_state.rear_axle.y, ego_state.rear_axle.heading], \
+                                      dtype=np.float64)
+
+         """
+         neighbor agents
+         """
+         neighbors = self.scenario.initial_tracked_objects
+         neighbor_past = list(self.scenario.get_past_tracked_objects(iteration= 0, time_horizon=1.0))
+         tracked_objects, tracked_objects_types = sampled_tracked_objects_to_tensor(neighbors.tracked_objects)
+         tracked_objects_past, _ = sampled_tracked_objects_to_array_list(neighbor_past)
+         static_objects, static_objects_types =sampled_static_objects_to_array_list(neighbor_past[-1])
+         tracked_objects_list = []
+         for tracked_object in tracked_objects:
+            tracked_objects_list.append(tracked_object)
+         _, neighbor_past, _, static_objects = agent_past_process(None, tracked_objects, tracked_objects_types, self.num_agents,\
+                                                                  static_objects, static_objects_types, \
+                                                                  self.num_static, self.max_ped_bike, anchor_ego_state)
+         """
+         neighbor agents
+         """
+         neighbors = self.scenario.initial_tracked_objects
+         neighbor_past = list(self.scenario.get_past_tracked_objects(iteration= 0, time_horizon=1.0))
+         tracked_objects, tracked_objects_types = sampled_tracked_objects_to_tensor(neighbors.tracked_objects)
+         tracked_objects_past, _ = sampled_tracked_objects_to_array_list(neighbor_past)
+         static_objects, static_objects_types =sampled_static_objects_to_array_list(neighbor_past[-1])
+         tracked_objects_list = []
+         for tracked_object in tracked_objects:
+            tracked_objects_list.append(tracked_object)
+         _, neighbor_past, _, static_objects = agent_past_process(None, tracked_objects, tracked_objects_types, self.num_agents,\
+                                                                  static_objects, static_objects_types, \
+                                                                  self.num_static, self.max_ped_bike, anchor_ego_state)
+
+         """
+         map
+         """
+         route_roadblocks_ids = self.scenario.get_route_roadblock_ids()
+
+         route_roadblocks_ids =route_roadblock_correction(
+                              ego_state, self.map_api, route_roadblocks_ids
+                              )
+         traffic_light_data = self.scenario.get_traffic_light_status_at_iteration(iteration= 0)
+         coords, traffic_light_data, speed_limit, lane_route =get_neighbor_vector_set_map(
+                      self.map_api, self._map_features, ego_coords, self._radius, traffic_light_data)
+         vector_map = map_process(route_roadblocks_ids, anchor_ego_state, coords, traffic_light_data, speed_limit, lane_route, processor._map_features,
+                                      self._max_elements, self._max_points)
+         """
+         data convert
+         """
+         data = {"neighbor_agents_past": neighbor_past[:, -21:],
+        "ego_current_state": np.array([0., 0., 1. ,0.], dtype=np.float32), # ego centric x, y, cos, sin
+        "static_objects": static_objects}
+         data.update(vector_map)
+         data = convert_to_model_inputs(data, self.device)
 
 
 if __name__ == "__main__":

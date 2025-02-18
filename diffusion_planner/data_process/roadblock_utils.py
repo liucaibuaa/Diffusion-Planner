@@ -185,11 +185,11 @@ def get_current_roadblock_candidates(
         + roadblock_dict[SemanticMapLayer.ROADBLOCK_CONNECTOR]
     )
 
-    if not roadblock_candidates:
+    if not roadblock_candidates: # 为空
         for layer in layers:
             roadblock_id_, distance = map_api.get_distance_to_nearest_map_object(
                 point=ego_pose.point, layer=layer
-            )
+            ) # 获得距离自车当前位置最近的map object，存入roadblock_candidates
             roadblock = map_api.get_map_object(roadblock_id_, layer)
 
             if roadblock:
@@ -204,17 +204,17 @@ def get_current_roadblock_candidates(
     for idx, roadblock in enumerate(roadblock_candidates):
         lane_displacement_error, lane_heading_error = np.inf, np.inf
 
-        for lane in roadblock.interior_edges:
-            lane_discrete_path: List[StateSE2] = lane.baseline_path.discrete_path
+        for lane in roadblock.interior_edges: # 在ROADBLOCK与 ROADBLOCK_CONNECTOR中一定包含lane这个类
+            lane_discrete_path: List[StateSE2] = lane.baseline_path.discrete_path #离散点组成的discrete path
             lane_discrete_points = np.array(
                 [state.point.array for state in lane_discrete_path], dtype=np.float64
             )
             lane_state_distances = (
                 (lane_discrete_points - ego_pose.point.array[None, ...]) ** 2.0
             ).sum(axis=-1) ** 0.5
-            argmin = np.argmin(lane_state_distances)
+            argmin = np.argmin(lane_state_distances) #找到距离自车最近的车车道线中的点
 
-            heading_error = np.abs(
+            heading_error = np.abs(  #与最近车道线点的航向角误差
                 normalize_angle(lane_discrete_path[argmin].heading - ego_pose.heading)
             )
             displacement_error = lane_state_distances[argmin]
@@ -228,7 +228,7 @@ def get_current_roadblock_candidates(
             if (
                 heading_error < heading_error_thresh
                 and displacement_error < displacement_error_thresh
-            ):
+            ):  #如果距离车道线最近点的航向和距离均属于误差范围内时
                 if roadblock.id in route_roadblocks_dict.keys():
                     on_route_candidates.append(roadblock)
                     on_route_candidate_displacement_errors.append(displacement_error)
@@ -240,11 +240,11 @@ def get_current_roadblock_candidates(
         roadblock_heading_errors.append(lane_heading_error)
 
     if on_route_candidates:  # prefer on-route roadblocks
-        return (
+        return (#找到on_route_candidate_displacement_errors最小值索引
             on_route_candidates[np.argmin(on_route_candidate_displacement_errors)],
             on_route_candidates,
         )
-    elif candidates:  # fallback to most promising candidate
+    elif candidates:  # fallback to most promising candidate #如果没有on route candidates，则找到最近candidate
         return candidates[np.argmin(candidate_displacement_errors)], candidates
 
     # otherwise, just find any close roadblock

@@ -477,16 +477,16 @@ def get_traffic_light_encoding(
     :returns: Encoded traffic light data per segment.
     """
     # Initialize with all segment labels with UNKNOWN status
-    traffic_light_encoding = np.full(
+    traffic_light_encoding = np.full( # (num_lanes, num_traffic_light_status_type)
         (len(lane_seg_ids.lane_ids), len(TrafficLightStatusType)),
-        LaneSegmentTrafficLightData.encode(TrafficLightStatusType.UNKNOWN),
+        LaneSegmentTrafficLightData.encode(TrafficLightStatusType.UNKNOWN), #交通信号灯独热（One-Hot）编码
     )
 
     # Extract ids of red and green lane connectors
-    green_lane_connectors = [
+    green_lane_connectors = [ #绿灯车道的id
         str(data.lane_connector_id) for data in traffic_light_data if data.status == TrafficLightStatusType.GREEN
     ]
-    red_lane_connectors = [
+    red_lane_connectors = [  #红灯车道的id
         str(data.lane_connector_id) for data in traffic_light_data if data.status == TrafficLightStatusType.RED
     ]
 

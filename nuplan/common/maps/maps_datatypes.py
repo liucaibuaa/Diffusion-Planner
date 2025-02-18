@@ -20,24 +20,24 @@ class SemanticMapLayer(IntEnum):
     Enum for SemanticMapLayers.
     """
 
-    LANE = 0
-    INTERSECTION = 1
-    STOP_LINE = 2
-    TURN_STOP = 3
-    CROSSWALK = 4
-    DRIVABLE_AREA = 5
-    YIELD = 6
-    TRAFFIC_LIGHT = 7
-    STOP_SIGN = 8
-    EXTENDED_PUDO = 9
-    SPEED_BUMP = 10
-    LANE_CONNECTOR = 11
-    BASELINE_PATHS = 12
-    BOUNDARIES = 13
-    WALKWAYS = 14
-    CARPARK_AREA = 15
-    PUDO = 16
-    ROADBLOCK = 17
+    LANE = 0  #普通车道，表示可通行的标准车道（包含方向、边界等信息）。
+    INTERSECTION = 1 #交叉口区域，包含多个 LANE 和 LANE_CONNECTOR 交汇的地方。
+    STOP_LINE = 2 #停车线，车辆在红灯或 STOP SIGN 处必须停下的线。
+    TURN_STOP = 3 #	转向停止点，比如左转或右转等待区的停止位置。
+    CROSSWALK = 4 # 人行横道，行人穿越马路的区域。
+    DRIVABLE_AREA = 5 #	可行驶区域，表示汽车可以行驶的路面（包括无标线的区域）。
+    YIELD = 6  #让行标志，车辆在进入某些路段时需要让行。
+    TRAFFIC_LIGHT = 7 #交通信号灯，控制通行权（红绿灯等）。
+    STOP_SIGN = 8  #STOP 停止标志，要求驾驶员完全停车再继续行驶。
+    EXTENDED_PUDO = 9 #扩展的上下车区域，比标准 PUDO 更大，可能包括更多等候区。
+    SPEED_BUMP = 10 #减速带，用于强制车辆减速。
+    LANE_CONNECTOR = 11  #车道连接器，表示 车道与车道之间的连接，如匝道或转向专用道。
+    BASELINE_PATHS = 12 #车道的参考路径，提供一条用于引导车辆通行的中心线（baseline）。
+    BOUNDARIES = 13 #道路边界，定义道路的物理边界（例如护栏、路沿）。
+    WALKWAYS = 14 #人行道，专门供行人行走的步道。
+    CARPARK_AREA = 15 #	停车场区域，包括商业停车场、路边停车区等。
+    PUDO = 16  #乘客上下车区域（Pick-up/Drop-off），专门用于乘客上下车的点。
+    ROADBLOCK = 17 # 代表的是 一整块道路结构，而不是单独的车道（LANE
     ROADBLOCK_CONNECTOR = 18
 
     @classmethod
