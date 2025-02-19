@@ -3,6 +3,7 @@ import torch.nn as nn
 from timm.models.layers import Mlp
 from timm.layers import DropPath
 
+# from utils import DynamicMLP as Mlp
 from diffusion_planner.model.module.mixer import MixerBlock
 
 
@@ -17,12 +18,12 @@ class Encoder(nn.Module):
         self.neighbor_encoder = AgentFusionEncoder(config.time_len, drop_path_rate=config.encoder_drop_path_rate, hidden_dim=config.hidden_dim, depth=config.encoder_depth)
         self.static_encoder = StaticFusionEncoder(config.static_objects_state_dim, drop_path_rate=config.encoder_drop_path_rate, hidden_dim=config.hidden_dim)
         self.lane_encoder = LaneFusionEncoder(config.lane_len, drop_path_rate=config.encoder_drop_path_rate, hidden_dim=config.hidden_dim, depth=config.encoder_depth)
-    
+
         self.fusion = FusionEncoder(
-            hidden_dim=config.hidden_dim, 
-            num_heads=config.num_heads, 
-            drop_path_rate=config.encoder_drop_path_rate, 
-            depth=config.encoder_depth, 
+            hidden_dim=config.hidden_dim,
+            num_heads=config.num_heads,
+            drop_path_rate=config.encoder_drop_path_rate,
+            depth=config.encoder_depth,
             device=config.device
         )
 
@@ -112,22 +113,22 @@ class AgentFusionEncoder(nn.Module):
         # neighbor: [1,0,0]
         pos[..., -3:] = 0.0
         pos[..., -3] = 1.0
-        
+
         B, P, V, _ = x.shape
         mask_v = torch.sum(torch.ne(x[..., :8], 0), dim=-1).to(x.device) == 0
         mask_p = torch.sum(~mask_v, dim=-1) == 0
         x = torch.cat([x, (~mask_v).float().unsqueeze(-1)], dim=-1)
         x = x.view(B * P, V, -1)
 
-        valid_indices = ~mask_p.view(-1) 
-        x = x[valid_indices] 
+        valid_indices = ~mask_p.view(-1)
+        x = x[valid_indices]
 
         x = self.channel_pre_project(x)
         x = x.permute(0, 2, 1)
         x = self.token_pre_project(x)
         x = x.permute(0, 2, 1)
         for block in self.blocks:
-            x = block(x)  
+            x = block(x)
 
         # pooling
         x = torch.mean(x, dim=1)
@@ -141,10 +142,10 @@ class AgentFusionEncoder(nn.Module):
 
         x_result = torch.zeros((B * P, x.shape[-1]), device=x.device)
         x_result[valid_indices] = x  # Fill in valid parts
-        
+
         return x_result.view(B, P, -1) , mask_p.reshape(B, -1), pos.view(B, P, -1)
 
-    
+
 class StaticFusionEncoder(nn.Module):
     def __init__(self, dim, drop_path_rate=0.3, hidden_dim=192, device='cuda'):
         super().__init__()
@@ -156,7 +157,7 @@ class StaticFusionEncoder(nn.Module):
     def forward(self, x):
         '''
         x: B, P, D (x, y, cos, sin, w, l, type(4))
-        ''' 
+        '''
         B, P, _ = x.shape
 
         pos = x[:, :, :7].clone() # x, y, cos, sin
@@ -168,7 +169,7 @@ class StaticFusionEncoder(nn.Module):
 
         mask_p = torch.sum(torch.ne(x[..., :10], 0), dim=-1).to(x.device) == 0
 
-        valid_indices = ~mask_p.view(-1) 
+        valid_indices = ~mask_p.view(-1)
 
         if valid_indices.sum() > 0:
             x = x.view(B * P, -1)
@@ -177,7 +178,7 @@ class StaticFusionEncoder(nn.Module):
             x_result[valid_indices] = x
 
         return x_result.view(B, P, -1), mask_p.view(B, P), pos.view(B, P, -1)
-    
+
 
 class LaneFusionEncoder(nn.Module):
     def __init__(self, lane_len, drop_path_rate=0.3, hidden_dim=192, depth=3, tokens_mlp_dim=64, channels_mlp_dim=128):
@@ -220,15 +221,15 @@ class LaneFusionEncoder(nn.Module):
         mask_p = torch.sum(~mask_v, dim=-1) == 0
         x = x.view(B * P, V, -1)
 
-        valid_indices = ~mask_p.view(-1) 
-        x = x[valid_indices] 
+        valid_indices = ~mask_p.view(-1)
+        x = x[valid_indices]
 
         x = self.channel_pre_project(x)
         x = x.permute(0, 2, 1)
         x = self.token_pre_project(x)
         x = x.permute(0, 2, 1)
         for block in self.blocks:
-            x = block(x)  
+            x = block(x)
 
         x = torch.mean(x, dim=1)
 
@@ -262,7 +263,7 @@ class LaneFusionEncoder(nn.Module):
 
         x_result = torch.zeros((B * P, x.shape[-1]), device=x.device)
         x_result[valid_indices] = x  # Fill in valid parts
-        
+
         return x_result.view(B, P, -1) , mask_p.reshape(B, -1), pos.view(B, P, -1)
 
 

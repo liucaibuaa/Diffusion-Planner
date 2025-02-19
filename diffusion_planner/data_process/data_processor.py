@@ -209,9 +209,9 @@ class DataProcessor(object):
 
 if __name__ == "__main__":
   map_version = "nuplan-maps-v1.0"
-  data_path = "/share/data_cold/open_data/nuplan/nuplan-v1.1/trainval_sorted/folder_1"
+  data_path = "/share/data_cold/open_data/nuplan/nuplan-v1.1/trainval_sorted/folder_2"
   map_path = "/share/data_cold/open_data/nuplan/maps"
-  save_path = "/share/data_cold/abu_zone/multi_sensor_fusion/fusion/laneline/train/nuplan_processed/folder_1"
+  save_path = "/share/data_cold/abu_zone/multi_sensor_fusion/fusion/laneline/train/nuplan_processed/folder_2"
   total_scenarios = 30000
   scenario_mapping = ScenarioMapping(scenario_map=get_scenario_map(), subsample_ratio_override=0.5)
   builder = NuPlanScenarioBuilder(data_path, map_path, None, None, map_version, scenario_mapping = scenario_mapping)
