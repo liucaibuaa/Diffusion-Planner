@@ -198,34 +198,30 @@ class DataProcessor(object):
          data = convert_to_model_inputs(data, self.device)
 
         # generate file name by log name + token + scenario type
-         file_name = f"{processor.scenario.log_name}_{processor.scenario.token}_{processor.scenario.scenario_type}.pt"
-
-        # 确保文件名合法（移除特殊字符）
+         file_name = f"{self.scenario.log_name}_{self.scenario.token}_{self.scenario.scenario_type}.pt"
          file_name = file_name.replace(":", "_").replace("/", "_").replace(" ", "_")
 
-        # 指定存放路径
-         os.makedirs(save_path, exist_ok=True)  # 确保目录存在
-
-        # 完整文件路径
-         file_path = os.path.join(save_path, file_name)
+         os.makedirs(save_dir, exist_ok=True)  # 确保目录存在
+         file_path = os.path.join(save_dir, file_name)
          torch.save(data, file_path)
 
 
 
 if __name__ == "__main__":
   map_version = "nuplan-maps-v1.0"
-  data_path = "/share/data_cold/open_data/nuplan/nuplan-v1.1/trainval"
+  data_path = "/share/data_cold/open_data/nuplan/nuplan-v1.1/trainval_sorted/folder_1"
   map_path = "/share/data_cold/open_data/nuplan/maps"
-  save_path = "/share/data_cold/abu_zone/multi_sensor_fusion/fusion/laneline/train/nuplan_processed"
+  save_path = "/share/data_cold/abu_zone/multi_sensor_fusion/fusion/laneline/train/nuplan_processed/folder_1"
   total_scenarios = 30000
   scenario_mapping = ScenarioMapping(scenario_map=get_scenario_map(), subsample_ratio_override=0.5)
   builder = NuPlanScenarioBuilder(data_path, map_path, None, None, map_version, scenario_mapping = scenario_mapping)
-  worker = SingleMachineParallelExecutor(use_process_pool=True)
+  worker = SingleMachineParallelExecutor(use_process_pool=True, max_workers = 16)
   scenario_filter = ScenarioFilter(*get_filter_parameters(num_scenarios_per_type=30000,
                                                             limit_total_scenarios=total_scenarios))
   scenarios = builder.get_scenarios(scenario_filter, worker)
   del worker, builder, scenario_filter
-  processor = DataProcessor(scenarios)
-  processor.work(save_path,save_path, debug=False)
+  device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+  processor = DataProcessor(scenarios, device)
+  processor.work(save_path, debug=False)
 
 

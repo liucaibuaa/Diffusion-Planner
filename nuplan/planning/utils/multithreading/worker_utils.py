@@ -26,11 +26,15 @@ def worker_map(worker: WorkerPool, fn: Callable[..., List[Any]], input_objects: 
     :param input_objects: List of objects to map.
     :return: List of mapped objects.
     """
+    print(f"Worker threads: {worker.number_of_threads}")
+
     if worker.number_of_threads == 0:
         return fn(input_objects)
 
     object_chunks = chunk_list(input_objects, worker.number_of_threads)
     scattered_objects = worker.map(Task(fn=fn), object_chunks)
+    # worker.shutdown(wait=True)  # 关闭进程池
+
     output_objects = [result for results in scattered_objects for result in results]
 
     return output_objects
