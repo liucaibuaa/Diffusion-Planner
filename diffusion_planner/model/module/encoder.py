@@ -173,7 +173,7 @@ class StaticFusionEncoder(nn.Module):
 
         if valid_indices.sum() > 0:
             x = x.view(B * P, -1)
-            x = x[valid_indices]
+            x = x[valid_indices] # 取有效静态障碍物信息
             x = self.projection(x)
             x_result[valid_indices] = x
 

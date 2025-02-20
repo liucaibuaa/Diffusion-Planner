@@ -6,7 +6,7 @@ class DynamicMLP(nn.Module):
     super(DynamicMLP, self).__init__()
     layers = []
     out_features = out_features or in_features
-    dims = [in_features] + hidden_features + [out_features]
+    dims = [in_features] + [hidden_features] + [out_features]
     for i in range(len(dims) - 1):
       layers.append(nn.Linear(dims[i], dims[i + 1]))
       if i < len(dims) -2:
@@ -15,8 +15,8 @@ class DynamicMLP(nn.Module):
           layers.append(nn.Dropout(drop))
     self.mlp = nn.Sequential(*layers)
 
-    def forward(self, x):
-      return self.mlp(x)
+  def forward(self, x):
+    return self.mlp(x)
 
 class DropPath(nn.Module):
   def __init__(self, drop_prob = 0.0):

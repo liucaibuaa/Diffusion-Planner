@@ -1,11 +1,11 @@
 hidden_dim: 192
 agent_num: 30
-lane_num: 20
-time_len: 5
+lane_num: 40
+time_len: 1
 encoder_drop_path_rate: 0.3
 encoder_depth: 3
 lane_len: 50
 num_heads: 8
 static_objects_num: 30
-static_objects_state_dim: 7
+static_objects_state_dim: 10
 device: "cuda:0"
