@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
-from timm.models.layers import Mlp
-from timm.layers import DropPath
+from model.module.utils import DynamicMLP
 
-# from utils import DynamicMLP as Mlp
+from model.module.utils import DropPath
+
 from diffusion_planner.model.module.mixer import MixerBlock
 
 
@@ -76,7 +76,7 @@ class SelfAttentionBlock(nn.Module):
         self.drop_path = DropPath(dropout) if dropout > 0.0 else nn.Identity()
         self.norm2 = nn.LayerNorm(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=nn.GELU, drop=dropout)
+        self.mlp = DynamicMLP(in_features=dim, hidden_features=mlp_hidden_dim, drop=dropout)
 
     def forward(self, x, mask):
         x = x + self.drop_path(self.attn(self.norm1(x), x, x, key_padding_mask=mask)[0])
@@ -93,13 +93,13 @@ class AgentFusionEncoder(nn.Module):
 
         self.type_emb = nn.Linear(3, channels_mlp_dim)
 
-        self.channel_pre_project = Mlp(in_features=8+1, hidden_features=channels_mlp_dim, out_features=channels_mlp_dim, act_layer=nn.GELU, drop=0.)
-        self.token_pre_project = Mlp(in_features=time_len, hidden_features=tokens_mlp_dim, out_features=tokens_mlp_dim, act_layer=nn.GELU, drop=0.)
+        self.channel_pre_project = DynamicMLP(in_features=8+1, hidden_features=channels_mlp_dim, out_features=channels_mlp_dim, drop=0.)
+        self.token_pre_project = DynamicMLP(in_features=time_len, hidden_features=tokens_mlp_dim, out_features=tokens_mlp_dim, drop=0.)
 
         self.blocks = nn.ModuleList([MixerBlock(tokens_mlp_dim, channels_mlp_dim, drop_path_rate) for i in range(depth)])
 
         self.norm = nn.LayerNorm(channels_mlp_dim)
-        self.emb_project = Mlp(in_features=channels_mlp_dim, hidden_features=hidden_dim, out_features=hidden_dim, act_layer=nn.GELU, drop=drop_path_rate)
+        self.emb_project = DynamicMLP(in_features=channels_mlp_dim, hidden_features=hidden_dim, out_features=hidden_dim, drop=drop_path_rate)
 
 
     def forward(self, x):
@@ -152,7 +152,7 @@ class StaticFusionEncoder(nn.Module):
 
         self._hidden_dim = hidden_dim
 
-        self.projection = Mlp(in_features=dim, hidden_features=hidden_dim, out_features=hidden_dim, act_layer=nn.GELU, drop=drop_path_rate)
+        self.projection = DynamicMLP(in_features=dim, hidden_features=hidden_dim, out_features=hidden_dim, drop=drop_path_rate)
 
     def forward(self, x):
         '''
@@ -191,13 +191,13 @@ class LaneFusionEncoder(nn.Module):
         self.unknown_speed_emb = nn.Embedding(1, channels_mlp_dim)
         self.traffic_emb = nn.Linear(4, channels_mlp_dim)
 
-        self.channel_pre_project = Mlp(in_features=8, hidden_features=channels_mlp_dim, out_features=channels_mlp_dim, act_layer=nn.GELU, drop=0.)
-        self.token_pre_project = Mlp(in_features=lane_len, hidden_features=tokens_mlp_dim, out_features=tokens_mlp_dim, act_layer=nn.GELU, drop=0.)
+        self.channel_pre_project = DynamicMLP(in_features=8, hidden_features=channels_mlp_dim, out_features=channels_mlp_dim, drop=0.)
+        self.token_pre_project = DynamicMLP(in_features=lane_len, hidden_features=tokens_mlp_dim, out_features=tokens_mlp_dim, drop=0.)
 
         self.blocks = nn.ModuleList([MixerBlock(tokens_mlp_dim, channels_mlp_dim, drop_path_rate) for i in range(depth)])
 
         self.norm = nn.LayerNorm(channels_mlp_dim)
-        self.emb_project = Mlp(in_features=channels_mlp_dim, hidden_features=hidden_dim, out_features=hidden_dim, act_layer=nn.GELU, drop=drop_path_rate)
+        self.emb_project = DynamicMLP(in_features=channels_mlp_dim, hidden_features=hidden_dim, out_features=hidden_dim, drop=drop_path_rate)
 
     def forward(self, x, speed_limit, has_speed_limit):
         '''
