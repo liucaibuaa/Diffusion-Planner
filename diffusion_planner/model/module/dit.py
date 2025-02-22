@@ -1,8 +1,8 @@
 import math
 import torch
 import torch.nn as nn
-from timm.models.layers import Mlp
-
+# from timm.models.layers import Mlp
+from model.module.utils import DynamicMLP
 def modulate(x, shift, scale, only_first=False):
     if only_first:
         x_first, x_rest = x[:, :1], x[:, 1:]
@@ -74,7 +74,7 @@ class DiTBlock(nn.Module):
         self.norm2 = nn.LayerNorm(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         approx_gelu = lambda: nn.GELU(approximate="tanh")
-        self.mlp1 = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=approx_gelu, drop=0)
+        self.mlp1 = DynamicMLP(in_features=dim, hidden_features=mlp_hidden_dim, drop=0)
         self.adaLN_modulation = nn.Sequential(
             nn.SiLU(),
             nn.Linear(dim, 6 * dim, bias=True)
@@ -83,7 +83,7 @@ class DiTBlock(nn.Module):
         self.cross_attn = nn.MultiheadAttention(dim, heads, dropout, batch_first=True)
         self.norm4 = nn.LayerNorm(dim)
 
-        self.mlp2 = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=approx_gelu, drop=0)
+        self.mlp2 = DynamicMLP(in_features=dim, hidden_features=mlp_hidden_dim, drop=0)
 
     def forward(self, x, cross_c, y, attn_mask):
 
@@ -99,8 +99,8 @@ class DiTBlock(nn.Module):
         x = self.mlp2(self.norm4(x))
 
         return x
-    
-    
+
+
 class FinalLayer(nn.Module):
     """
     The final layer of DiT.
@@ -123,9 +123,8 @@ class FinalLayer(nn.Module):
 
     def forward(self, x, y):
         B, P, _ = x.shape
-        
+
         shift, scale = self.adaLN_modulation(y).chunk(2, dim=1)
         x = modulate(self.norm_final(x), shift, scale)
         x = self.proj(x)
         return x
-    

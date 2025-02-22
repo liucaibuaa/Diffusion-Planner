@@ -1,8 +1,9 @@
 import math
 import torch
 import torch.nn as nn
-from timm.models.layers import Mlp
-from timm.layers import DropPath
+from model.module.utils import DynamicMLP
+
+from model.module.utils import DropPath
 
 from diffusion_planner.model.diffusion_utils.sampling import dpm_sampler
 from diffusion_planner.model.diffusion_utils.sde import SDE, VPSDE_linear
@@ -21,22 +22,22 @@ class Decoder(nn.Module):
         self._sde = VPSDE_linear()
 
         self.dit = DiT(
-            sde=self._sde, 
+            sde=self._sde,
             route_encoder = RouteEncoder(config.route_num, config.lane_len, drop_path_rate=config.encoder_drop_path_rate, hidden_dim=config.hidden_dim),
-            depth=config.decoder_depth, 
+            depth=config.decoder_depth,
             output_dim= (config.future_len + 1) * 4, # x, y, cos, sin
-            hidden_dim=config.hidden_dim, 
-            heads=config.num_heads, 
+            hidden_dim=config.hidden_dim,
+            heads=config.num_heads,
             dropout=dpr,
             model_type=config.diffusion_model_type
         )
-        
+
         self._state_normalizer: StateNormalizer = config.state_normalizer
-        
+
     @property
     def sde(self):
         return self._sde
-    
+
     def forward(self, encoder_outputs, inputs):
         """
         Diffusion decoder process.
@@ -51,8 +52,8 @@ class Decoder(nn.Module):
             inputs: Dict
                 {
                     ...
-                    "ego_agent_past": past and current ego states,            
-                    "neighbor_agent_past": past and current neighbor states,  
+                    "ego_agent_past": past and current ego states,
+                    "neighbor_agent_past": past and current neighbor states,
 
                     [training-only] "sampled_trajectories": sampled current-future ego & neighbor states,        [B, P, 1 + V_future, 4]
                     [training-only] "diffusion_time": timestep of diffusion process $t \in [0, 1]$,              [B]
@@ -89,7 +90,7 @@ class Decoder(nn.Module):
 
             return {
                     "score": self.dit(
-                        sampled_trajectories, 
+                        sampled_trajectories,
                         diffusion_time,
                         ego_neighbor_encoding,
                         route_lanes,
@@ -104,14 +105,14 @@ class Decoder(nn.Module):
                 xt = xt.reshape(B, P, -1, 4)
                 xt[:, :, 0, :] = current_states
                 return xt.reshape(B, P, -1)
-            
+
             x0 = dpm_sampler(
                         self.dit,
                         xT,
                         other_model_params={
-                            "cross_c": ego_neighbor_encoding, 
+                            "cross_c": ego_neighbor_encoding,
                             "route_lanes": route_lanes,
-                            "neighbor_current_mask": neighbor_current_mask                            
+                            "neighbor_current_mask": neighbor_current_mask
                         },
                         dpm_solver_params={
                             "correcting_xt_fn":initial_state_constraint,
@@ -123,20 +124,20 @@ class Decoder(nn.Module):
                     "prediction": x0
                 }
 
-        
+
 class RouteEncoder(nn.Module):
     def __init__(self, route_num, lane_len, drop_path_rate=0.3, hidden_dim=192, tokens_mlp_dim=32, channels_mlp_dim=64):
         super().__init__()
 
         self._channel = channels_mlp_dim
 
-        self.channel_pre_project = Mlp(in_features=4, hidden_features=channels_mlp_dim, out_features=channels_mlp_dim, act_layer=nn.GELU, drop=0.)
-        self.token_pre_project = Mlp(in_features=route_num * lane_len, hidden_features=tokens_mlp_dim, out_features=tokens_mlp_dim, act_layer=nn.GELU, drop=0.)
+        self.channel_pre_project = DynamicMLP(in_features=4, hidden_features=channels_mlp_dim, out_features=channels_mlp_dim, drop=0.)
+        self.token_pre_project = DynamicMLP(in_features=route_num * lane_len, hidden_features=tokens_mlp_dim, out_features=tokens_mlp_dim, drop=0.)
 
         self.Mixer = MixerBlock(tokens_mlp_dim, channels_mlp_dim, drop_path_rate)
 
         self.norm = nn.LayerNorm(channels_mlp_dim)
-        self.emb_project = Mlp(in_features=channels_mlp_dim, hidden_features=hidden_dim, out_features=hidden_dim, act_layer=nn.GELU, drop=drop_path_rate)
+        self.emb_project = DynamicMLP(in_features=channels_mlp_dim, hidden_features=hidden_dim, out_features=hidden_dim, drop=drop_path_rate)
 
     def forward(self, x):
         '''
@@ -151,8 +152,8 @@ class RouteEncoder(nn.Module):
         mask_b = torch.sum(~mask_p, dim=-1) == 0
         x = x.view(B, P * V, -1)
 
-        valid_indices = ~mask_b.view(-1) 
-        x = x[valid_indices] 
+        valid_indices = ~mask_b.view(-1)
+        x = x[valid_indices]
 
         x = self.channel_pre_project(x)
         x = x.permute(0, 2, 1)
@@ -166,25 +167,25 @@ class RouteEncoder(nn.Module):
 
         x_result = torch.zeros((B, x.shape[-1]), device=x.device)
         x_result[valid_indices] = x  # Fill in valid parts
-        
+
         return x_result.view(B, -1)
 
 
 class DiT(nn.Module):
     def __init__(self, sde: SDE, route_encoder: nn.Module, depth, output_dim, hidden_dim=192, heads=6, dropout=0.1, mlp_ratio=4.0, model_type="x_start"):
         super().__init__()
-        
+
         assert model_type in ["score", "x_start"], f"Unknown model type: {model_type}"
         self._model_type = model_type
         self.route_encoder = route_encoder
         self.agent_embedding = nn.Embedding(2, hidden_dim)
-        self.preproj = Mlp(in_features=output_dim, hidden_features=512, out_features=hidden_dim, act_layer=nn.GELU, drop=0.)
+        self.preproj = DynamicMLP(in_features=output_dim, hidden_features=512, out_features=hidden_dim, drop=0.)
         self.t_embedder = TimestepEmbedder(hidden_dim)
         self.blocks = nn.ModuleList([DiTBlock(hidden_dim, heads, dropout, mlp_ratio) for i in range(depth)])
         self.final_layer = FinalLayer(hidden_dim, output_dim)
         self._sde = sde
         self.marginal_prob_std = self._sde.marginal_prob_std
-               
+
     @property
     def model_type(self):
         return self._model_type
@@ -197,25 +198,25 @@ class DiT(nn.Module):
         cross_c: (B, N, D)      -> Cross-Attention context
         """
         B, P, _ = x.shape
-        
+
         x = self.preproj(x)
 
         x_embedding = torch.cat([self.agent_embedding.weight[0][None, :], self.agent_embedding.weight[1][None, :].expand(P - 1, -1)], dim=0)  # (P, D)
         x_embedding = x_embedding[None, :, :].expand(B, -1, -1) # (B, P, D)
-        x = x + x_embedding     
+        x = x + x_embedding
 
         route_encoding = self.route_encoder(route_lanes)
         y = route_encoding
-        y = y + self.t_embedder(t)      
+        y = y + self.t_embedder(t)
 
         attn_mask = torch.zeros((B, P), dtype=torch.bool, device=x.device)
         attn_mask[:, 1:] = neighbor_current_mask
-        
+
         for block in self.blocks:
-            x = block(x, cross_c, y, attn_mask)  
-            
+            x = block(x, cross_c, y, attn_mask)
+
         x = self.final_layer(x, y)
-        
+
         if self._model_type == "score":
             return x / (self.marginal_prob_std(t)[:, None, None] + 1e-6)
         elif self._model_type == "x_start":

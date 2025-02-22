@@ -29,7 +29,7 @@ class SDE(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def marginal_prob(self, x, t):
+    def marginal_prob(self, x, t):  # 返回在给定状态x和时间t下，sde的边际分布pt(x)的均值和标准差
         """
         Parameters to determine the marginal distribution of the SDE, $p_t(x)$.
 
@@ -38,7 +38,7 @@ class SDE(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def diffusion_coeff(self, t):
+    def diffusion_coeff(self, t): #返回在时间t下的扩散系数g(t)
         """
         diffusion_coeff: A function that returns the diffusion coefficient of the SDE.
 
@@ -47,7 +47,7 @@ class SDE(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def marginal_prob_std(self, t):
+    def marginal_prob_std(self, t):#返回在给定时间t下，边际分布的标准差，即噪声大小
         """
         Parameters to determine the marginal distribution of the SDE, $p_t(x)$.
 
