@@ -98,6 +98,40 @@ class DataProcessor(object):
 
         return data
 
+    def process_tracked_objects(tracked_objects_in_all_frames, full_time_horizon: int):
+
+      # 创建一个字典来存储所有障碍物的轨迹
+      object_trajectories = {}
+
+      # 遍历每一帧的 tracked_objects
+      for frame_idx, detection_frame in enumerate(tracked_objects_in_all_frames):
+          for obj in detection_frame.tracked_objects:
+              obj_id = obj.track_id  # 获取障碍物 ID
+              obj_position = np.array([obj.state.x, obj.state.y])  # 获取障碍物位置 (x, y)
+
+              # 如果该障碍物 ID 还未存储，则初始化
+              if obj_id not in object_trajectories:
+                  object_trajectories[obj_id] = []
+
+              # 记录该障碍物在该帧的位置信息
+              object_trajectories[obj_id].append(obj_position)
+
+      # 统一轨迹长度，填充 NaN
+      for obj_id, traj in object_trajectories.items():
+          traj = np.array(traj)  # 转换为 NumPy 数组，形状为 (N, 2)
+          num_frames = traj.shape[0]
+
+          if num_frames < full_time_horizon:
+              # 如果轨迹长度小于 V，则用 NaN 填充
+              pad_size = full_time_horizon - num_frames
+              pad_array = np.full((pad_size, 2), np.nan)  # 生成 (pad_size, 2) 的 NaN 数组
+              object_trajectories[obj_id] = np.vstack([traj, pad_array])  # 拼接填充
+          else:
+              # 如果轨迹长度大于 V，则裁剪
+              object_trajectories[obj_id] = traj[:full_time_horizon]
+
+      return object_trajectories
+
     def get_ego_agent(self):
         self.anchor_ego_state = self.scenario.initial_ego_state
 
