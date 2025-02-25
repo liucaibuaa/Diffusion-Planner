@@ -710,7 +710,7 @@ def build_generic_ego_features_from_tensor(ego_trajectory: torch.Tensor, reverse
     return local_ego_trajectory
 
 
-def filter_agents_tensor(agents: List[torch.Tensor], reverse: bool = False) -> List[torch.Tensor]:
+def filter_agents_tensor(agents: List[torch.Tensor], reverse: bool = False) -> List[torch.Tensor]: # output{V, P, D}
     """
     Filter detections to keep only agents which appear in the first frame (or last frame if reverse=True)
     :param agents: The past agents in the scene. A list of [num_frames] tensors, each complying with the AgentInternalIndex schema

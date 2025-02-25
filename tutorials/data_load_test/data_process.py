@@ -110,7 +110,7 @@ class DataProcessor(object):
         ]
 
         sampled_future_observations = [present_tracked_objects] + future_tracked_objects
-        future_tracked_objects_tensor_list, _ = sampled_tracked_objects_to_tensor_list(sampled_future_observations)
+        future_tracked_objects_tensor_list, _ = sampled_tracked_objects_to_tensor_list(sampled_future_observations)  # output{V, P, D}
         agent_futures = agent_future_process(current_ego_state, future_tracked_objects_tensor_list, self.num_agents, agent_index)
 
         return agent_futures
