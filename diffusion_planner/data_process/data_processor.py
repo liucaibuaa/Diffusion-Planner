@@ -53,6 +53,8 @@ class DataProcessor(object):
         self._interpolation_method = 'linear' # Interpolation method to apply when interpolating to maintain fixed size map elements.
 
         self.num_past_poses = 10 * self.past_time_horizon
+        self.future_time_horizon = 5 #[seconds]
+        self.num_future_poses = 10 * self.future_time_horizon
         self.device = device
 
     def observation_adapter(self, history_buffer, traffic_light_data, map_api, route_roadblock_ids, device='cpu'):
@@ -145,21 +147,21 @@ class DataProcessor(object):
          ego_coords = Point2D(ego_state.rear_axle.x, ego_state.rear_axle.y)
          anchor_ego_state = np.array([ego_state.rear_axle.x, ego_state.rear_axle.y, ego_state.rear_axle.heading], \
                                       dtype=np.float64)
+         """
+         ego future
+         """
+         past_ego_states = processor.scenario.get_ego_past_trajectory(
+          iteration=0, num_samples=processor.num_past_poses, time_horizon=processor.past_time_horizon
+         )
 
-         """
-         neighbor agents
-         """
-         neighbors = self.scenario.initial_tracked_objects
-         neighbor_past = list(self.scenario.get_past_tracked_objects(iteration= 0, time_horizon=1.0))
-         tracked_objects, tracked_objects_types = sampled_tracked_objects_to_tensor(neighbors.tracked_objects)
-         tracked_objects_past, _ = sampled_tracked_objects_to_array_list(neighbor_past)
-         static_objects, static_objects_types =sampled_static_objects_to_array_list(neighbor_past[-1])
-         tracked_objects_list = []
-         for tracked_object in tracked_objects:
-            tracked_objects_list.append(tracked_object)
-         _, neighbor_past, _, static_objects = agent_past_process(None, tracked_objects, tracked_objects_types, self.num_agents,\
-                                                                  static_objects, static_objects_types, \
-                                                                  self.num_static, self.max_ped_bike, anchor_ego_state)
+         sampled_past_ego_states = list(past_ego_states) + [processor.anchor_ego_state]
+         past_ego_states_tensor = sampled_past_ego_states_to_tensor(sampled_past_ego_states)
+
+         future_ego_states = self.scenario.get_ego_future_trajectory(iteration=0, num_samples=processor.num_future_poses, time_horizon= processor.future_time_horizon)
+         future_ego_states_tensor = sampled_past_ego_states_to_tensor(list(future_ego_states))
+
+         sample_ego_states = past_ego_states_tensor + future_ego_states_tensor
+
          """
          neighbor agents
          """
@@ -193,7 +195,8 @@ class DataProcessor(object):
          """
          data = {"neighbor_agents_past": neighbor_past[:, -21:],
         "ego_current_state": np.array([0., 0., 1. ,0.], dtype=np.float32), # ego centric x, y, cos, sin
-        "static_objects": static_objects}
+        "static_objects": static_objects,
+        "sample_ego_states": sample_ego_states}
          data.update(vector_map)
          data = convert_to_model_inputs(data, self.device)
 
