@@ -23,7 +23,8 @@ get_filter_parameters,
 sampled_tracked_objects_to_tensor_list,
 sampled_tracked_objects_to_tensor
 )
-
+from nuplan.common.actor_state.tracked_objects_types import TrackedObjectType
+from diffusion_planner.data_process.utils import convert_absolute_quantities_to_relative,_global_state_se2_array_to_local,_global_velocity_to_local
 from nuplan.planning.training.preprocessing.utils.agents_preprocessing import (
     AgentInternalIndex,
     EgoInternalIndex,
@@ -53,6 +54,8 @@ class DataProcessor(object):
         self._interpolation_method = 'linear' # Interpolation method to apply when interpolating to maintain fixed size map elements.
 
         self.num_past_poses = 10 * self.past_time_horizon
+        self.future_time_horizon = 8 #[seconds]
+        self.num_future_poses = self.future_time_horizon * 10
         self.device = device
 
     def observation_adapter(self, history_buffer, traffic_light_data, map_api, route_roadblock_ids, device='cpu'):
@@ -145,35 +148,63 @@ class DataProcessor(object):
          ego_coords = Point2D(ego_state.rear_axle.x, ego_state.rear_axle.y)
          anchor_ego_state = np.array([ego_state.rear_axle.x, ego_state.rear_axle.y, ego_state.rear_axle.heading], \
                                       dtype=np.float64)
+         """
+         ego future traj
+         """
+         future_ego_states = self.scenario.get_ego_future_trajectory(iteration=0, num_samples=self.num_future_poses, time_horizon= self.future_time_horizon)
+         future_ego_states_numpy = np.array([(ego_state.rear_axle.x, ego_state.rear_axle.y, ego_state.rear_axle.heading, \
+                            ego_state.dynamic_car_state.rear_axle_velocity_2d.x, ego_state.dynamic_car_state.rear_axle_velocity_2d.y,\
+                            ego_state.dynamic_car_state.rear_axle_acceleration_2d.x, ego_state.dynamic_car_state.rear_axle_acceleration_2d.y ) for ego_state in future_ego_states], dtype = np.float64)
+         local_future_ego_states = convert_absolute_quantities_to_relative(future_ego_states_numpy, anchor_ego_state,'ego')
+         """
+         neighbor agents
+         """
+         neighbors = self.scenario.initial_tracked_objects
+         neighbor_past = list(self.scenario.get_past_tracked_objects(iteration= 0, time_horizon=1.0))
+         tracked_objects, tracked_objects_types, tracked_obj_tokens = sampled_tracked_objects_to_tensor(neighbors.tracked_objects)
+        #  tracked_objects_past, _ = sampled_tracked_objects_to_array_list(neighbor_past)
+         static_objects, static_objects_types =sampled_static_objects_to_array_list(neighbor_past[-1])
+         tracked_objects_list = []
+         for tracked_object in tracked_objects:
+            tracked_objects_list.append(tracked_object)
+         _, neighbor_past, selected_indices, static_objects = agent_past_process(None, tracked_objects, tracked_objects_types, self.num_agents,\
+                                                                  static_objects, static_objects_types, \
+                                                                  self.num_static, self.max_ped_bike, anchor_ego_state)
+         """
+         selected neighbor future agents
+         """
+         objects_tokens = [tracked_obj_tokens[key] for key in selected_indices]
 
-         """
-         neighbor agents
-         """
-         neighbors = self.scenario.initial_tracked_objects
-         neighbor_past = list(self.scenario.get_past_tracked_objects(iteration= 0, time_horizon=1.0))
-         tracked_objects, tracked_objects_types = sampled_tracked_objects_to_tensor(neighbors.tracked_objects)
-         tracked_objects_past, _ = sampled_tracked_objects_to_array_list(neighbor_past)
-         static_objects, static_objects_types =sampled_static_objects_to_array_list(neighbor_past[-1])
-         tracked_objects_list = []
-         for tracked_object in tracked_objects:
-            tracked_objects_list.append(tracked_object)
-         _, neighbor_past, _, static_objects = agent_past_process(None, tracked_objects, tracked_objects_types, self.num_agents,\
-                                                                  static_objects, static_objects_types, \
-                                                                  self.num_static, self.max_ped_bike, anchor_ego_state)
-         """
-         neighbor agents
-         """
-         neighbors = self.scenario.initial_tracked_objects
-         neighbor_past = list(self.scenario.get_past_tracked_objects(iteration= 0, time_horizon=1.0))
-         tracked_objects, tracked_objects_types = sampled_tracked_objects_to_tensor(neighbors.tracked_objects)
-         tracked_objects_past, _ = sampled_tracked_objects_to_array_list(neighbor_past)
-         static_objects, static_objects_types =sampled_static_objects_to_array_list(neighbor_past[-1])
-         tracked_objects_list = []
-         for tracked_object in tracked_objects:
-            tracked_objects_list.append(tracked_object)
-         _, neighbor_past, _, static_objects = agent_past_process(None, tracked_objects, tracked_objects_types, self.num_agents,\
-                                                                  static_objects, static_objects_types, \
-                                                                  self.num_static, self.max_ped_bike, anchor_ego_state)
+         neighbor_future = list(self.scenario.get_future_tracked_objects(iteration= 0, time_horizon=self.future_time_horizon, num_samples =self.num_future_poses))
+         slected_objs_future_traj = np.full((len(neighbor_future), len(objects_tokens), 11), np.nan, dtype=np.float64)
+         for frame_id in range(len(neighbor_future)):
+            tracked_objects = neighbor_future[frame_id]
+            current_frame_tracked_objects = {tracked_object.track_token: tracked_object for tracked_object in tracked_objects.tracked_objects}
+            for i in range(len(objects_tokens)):
+              if objects_tokens[i] in current_frame_tracked_objects.keys():
+                agent_state = current_frame_tracked_objects[objects_tokens[i]]
+
+                agent_global_poses = np.array([[agent_state.center.x, agent_state.center.y, agent_state.center.heading]])
+                agent_global_velocities = np.array([[agent_state.velocity.x, agent_state.velocity.y]])
+                transformed_poses = _global_state_se2_array_to_local(agent_global_poses, anchor_ego_state)
+                transformed_velocities = _global_velocity_to_local(agent_global_velocities, anchor_ego_state[-1])
+                local_agent_state = np.zeros((1, 11))
+                local_agent_state[:, 0] = transformed_poses[:, 0]
+                local_agent_state[:, 1] = transformed_poses[:, 1]
+                local_agent_state[:, 2] = np.cos(transformed_poses[:, 2])
+                local_agent_state[:, 3] = np.sin(transformed_poses[:, 2])
+                local_agent_state[:, 4] = transformed_velocities[:, 0]
+                local_agent_state[:, 5] = transformed_velocities[:, 1]
+                local_agent_state[:, 6] = agent_state.box.width
+                local_agent_state[:, 7] = agent_state.box.length
+                if agent_state.tracked_object_type == TrackedObjectType.VEHICLE:
+                  local_agent_state[:, 8:] = [1, 0, 0]  # Mark as VEHICLE
+                elif agent_state.tracked_object_type == TrackedObjectType.PEDESTRIAN:
+                  local_agent_state[:, 8:] = [0, 1, 0]  # Mark as PEDESTRIAN
+                else:  # TrackedObjectType.BICYCLE
+                  local_agent_state[:, 8:] = [0, 0, 1]  # Mark as BICYCLE
+                slected_objs_future_traj[frame_id, i, :] = local_agent_state
+         slected_objs_future_traj = slected_objs_future_traj.transpose(1, 0, 2) # (num_neghbor, frames, data_dim)
 
          """
          map
@@ -193,7 +224,9 @@ class DataProcessor(object):
          """
          data = {"neighbor_agents_past": neighbor_past[:, -21:],
         "ego_current_state": np.array([0., 0., 1. ,0.], dtype=np.float32), # ego centric x, y, cos, sin
-        "static_objects": static_objects}
+        "static_objects": static_objects,
+        'neighbor_future_traj':slected_objs_future_traj,
+        'ego_future_traj': local_future_ego_states}
          data.update(vector_map)
          data = convert_to_model_inputs(data, self.device)
 

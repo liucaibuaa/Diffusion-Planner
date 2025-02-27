@@ -422,12 +422,12 @@ def _extract_agent_tensor(tracked_objects, track_token_ids, object_types):
     max_agent_id = len(track_token_ids)
 
     for idx, agent in enumerate(agents):
-        if agent.track_token not in track_token_ids:
-            track_token_ids[agent.track_token] = max_agent_id
-            max_agent_id += 1
-        track_token_int = track_token_ids[agent.track_token]
+        if agent.track_token not in track_token_ids.values():
+          track_token_ids[max_agent_id] = agent.track_token
 
-        output[idx, AgentInternalIndex.track_token()] = float(track_token_int)
+        # track_token_int = track_token_ids[agent.track_token]
+
+        output[idx, AgentInternalIndex.track_token()] = float(max_agent_id)
         output[idx, AgentInternalIndex.vx()] = agent.velocity.x
         output[idx, AgentInternalIndex.vy()] = agent.velocity.y
         output[idx, AgentInternalIndex.heading()] = agent.center.heading
@@ -436,6 +436,7 @@ def _extract_agent_tensor(tracked_objects, track_token_ids, object_types):
         output[idx, AgentInternalIndex.x()] = agent.center.x
         output[idx, AgentInternalIndex.y()] = agent.center.y
         agent_types.append(agent.tracked_object_type)
+        max_agent_id += 1
 
     return output, track_token_ids, agent_types
 
@@ -475,4 +476,4 @@ def sampled_tracked_objects_to_tensor(tracked_objects):
     output.append(tensorized)
     output_types.append(agent_types)
 
-    return output, output_types
+    return output, output_types, track_token_ids
