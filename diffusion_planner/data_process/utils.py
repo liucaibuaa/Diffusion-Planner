@@ -179,7 +179,10 @@ def convert_absolute_quantities_to_relative(agent_state, ego_state, agent_type='
         agent_state[:, 0] = transformed_poses[:, 0]
         agent_state[:, 1] = transformed_poses[:, 1]
         agent_state[:, 2] = transformed_poses[:, 2]
-
+    elif agent_type == 'pos_heading_only':
+        agent_global_poses = agent_state
+        transformed_poses = _global_state_se2_array_to_local(agent_global_poses, ego_pose)
+        agent_state = transformed_poses
     return agent_state
 
 

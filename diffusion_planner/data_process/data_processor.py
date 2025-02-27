@@ -21,7 +21,8 @@ from diffusion_planner.data_process.utils import (convert_to_model_inputs,
 get_scenario_map,
 get_filter_parameters,
 sampled_tracked_objects_to_tensor_list,
-sampled_tracked_objects_to_tensor
+sampled_tracked_objects_to_tensor,
+convert_absolute_quantities_to_relative
 )
 
 from nuplan.planning.training.preprocessing.utils.agents_preprocessing import (
@@ -53,8 +54,10 @@ class DataProcessor(object):
         self._interpolation_method = 'linear' # Interpolation method to apply when interpolating to maintain fixed size map elements.
 
         self.num_past_poses = 10 * self.past_time_horizon
-        self.future_time_horizon = 5 #[seconds]
-        self.num_future_poses = 10 * self.future_time_horizon
+        self.future_time_horizon = 13 #[seconds] default
+        self.num_future_poses = 13 * self.future_time_horizon
+        self.pred_horizon = 5.0 #pred 5s traj
+        self.num_pred_poses = 50
         self.device = device
 
     def observation_adapter(self, history_buffer, traffic_light_data, map_api, route_roadblock_ids, device='cpu'):
@@ -98,40 +101,6 @@ class DataProcessor(object):
 
         return data
 
-    def process_tracked_objects(tracked_objects_in_all_frames, full_time_horizon: int):
-
-      # 创建一个字典来存储所有障碍物的轨迹
-      object_trajectories = {}
-
-      # 遍历每一帧的 tracked_objects
-      for frame_idx, detection_frame in enumerate(tracked_objects_in_all_frames):
-          for obj in detection_frame.tracked_objects:
-              obj_id = obj.track_id  # 获取障碍物 ID
-              obj_position = np.array([obj.state.x, obj.state.y])  # 获取障碍物位置 (x, y)
-
-              # 如果该障碍物 ID 还未存储，则初始化
-              if obj_id not in object_trajectories:
-                  object_trajectories[obj_id] = []
-
-              # 记录该障碍物在该帧的位置信息
-              object_trajectories[obj_id].append(obj_position)
-
-      # 统一轨迹长度，填充 NaN
-      for obj_id, traj in object_trajectories.items():
-          traj = np.array(traj)  # 转换为 NumPy 数组，形状为 (N, 2)
-          num_frames = traj.shape[0]
-
-          if num_frames < full_time_horizon:
-              # 如果轨迹长度小于 V，则用 NaN 填充
-              pad_size = full_time_horizon - num_frames
-              pad_array = np.full((pad_size, 2), np.nan)  # 生成 (pad_size, 2) 的 NaN 数组
-              object_trajectories[obj_id] = np.vstack([traj, pad_array])  # 拼接填充
-          else:
-              # 如果轨迹长度大于 V，则裁剪
-              object_trajectories[obj_id] = traj[:full_time_horizon]
-
-      return object_trajectories
-
     def get_ego_agent(self):
         self.anchor_ego_state = self.scenario.initial_ego_state
 
@@ -167,13 +136,49 @@ class DataProcessor(object):
             sampled_tracked_objects_to_tensor_list(sampled_past_observations)
 
         return past_tracked_objects_tensor_list, past_tracked_objects_types
+
+    @staticmethod
+    def process_tracked_objects(tracked_objects_in_all_frames, full_time_horizon, filter_agent_frames_threshold):
+        """
+        处理自动驾驶中的障碍物数据，将其转换为 (T, N, 3) 形状的 NumPy 数组
+        :param tracked_objects_in_all_frames: 包含所有时间步的障碍物检测信息
+        :param full_time_horizon: 需要对齐的时间长度（T）
+        :param filter_agent_frames_threshold: 过滤掉轨迹长度小于该值的障碍物
+        :return: 形状为 (T, N, 3) 的 NumPy 数组，N 为所有时间步中最大障碍物数
+        """
+
+        # 创建一个字典存储每个障碍物的轨迹
+        object_trajectories = {}
+
+        # 遍历每一帧的 tracked_objects
+        for frame_idx, detection_frame in enumerate(tracked_objects_in_all_frames):
+            for obj in detection_frame.tracked_objects:
+                obj_token = obj.track_token  # 获取障碍物唯一 ID
+                obj_state = np.array([obj.center.x, obj.center.y, obj.center.heading])  # 提取 (x, y, heading)
+
+                # 如果该障碍物 ID 还未存储，则初始化
+                if obj_token not in object_trajectories:
+                    object_trajectories[obj_token] = np.full((full_time_horizon, 3), np.nan)
+
+                # 记录该障碍物在该帧的位置信息
+                object_trajectories[obj_token][frame_idx] = obj_state
+
+        # **第一步：过滤掉轨迹长度小于 filter_agent_frames_threshold 的障碍物**
+        object_trajectories = {
+            obj_token: traj for obj_token, traj in object_trajectories.items()
+            if np.sum(~np.isnan(traj[:, 0])) >= filter_agent_frames_threshold
+        }
+
+        return object_trajectories
+
     def work(self, save_dir, debug=False):
       for scenario in tqdm(self._scenarios):
          map_name = scenario._map_name
          token = scenario.token
          self.scenario = scenario
          self.map_api = scenario.map_api
-
+         self.future_time_horizon = self.scenario.duration_s.time_s - self.past_time_horizon
+         self.num_future_poses = int(10 * self.future_time_horizon)
          """
          ego
          """
@@ -184,33 +189,42 @@ class DataProcessor(object):
          """
          ego future
          """
-         past_ego_states = processor.scenario.get_ego_past_trajectory(
-          iteration=0, num_samples=processor.num_past_poses, time_horizon=processor.past_time_horizon
+         past_ego_states = self.scenario.get_ego_past_trajectory(
+          iteration=0, num_samples=self.num_past_poses, time_horizon=self.past_time_horizon
          )
 
-         sampled_past_ego_states = list(past_ego_states) + [processor.anchor_ego_state]
-         past_ego_states_tensor = sampled_past_ego_states_to_tensor(sampled_past_ego_states)
+         future_ego_states = self.scenario.get_ego_future_trajectory(iteration=0, num_samples=self.num_future_poses, time_horizon= self.future_time_horizon)
+         sampled_ego_states = list(past_ego_states) + [ego_state] + list(future_ego_states)
 
-         future_ego_states = self.scenario.get_ego_future_trajectory(iteration=0, num_samples=processor.num_future_poses, time_horizon= processor.future_time_horizon)
-         future_ego_states_tensor = sampled_past_ego_states_to_tensor(list(future_ego_states))
+         sampled_ego_states_numpy = np.array([(ego_state.rear_axle.x, ego_state.rear_axle.y, ego_state.rear_axle.heading, \
+                                      ego_state.dynamic_car_state.rear_axle_velocity_2d.x, ego_state.dynamic_car_state.rear_axle_velocity_2d.y,\
+                                      ego_state.dynamic_car_state.rear_axle_acceleration_2d.x, ego_state.dynamic_car_state.rear_axle_acceleration_2d.y ) for ego_state in sampled_ego_states], dtype = np.float64)
+         sampled_ego_states_numpy = np.pad(sampled_ego_states_numpy, ((0, self.num_pred_poses), (0,0)), mode = 'constant', constant_values=np.nan)
 
-         sample_ego_states = past_ego_states_tensor + future_ego_states_tensor
+         local_sampled_past_ego_states = convert_absolute_quantities_to_relative(sampled_ego_states_numpy, anchor_ego_state,'ego' )
 
          """
          neighbor agents
          """
          neighbors = self.scenario.initial_tracked_objects
-         neighbor_past = list(self.scenario.get_past_tracked_objects(iteration= 0, time_horizon=1.0))
-         tracked_objects, tracked_objects_types = sampled_tracked_objects_to_tensor(neighbors.tracked_objects)
-         tracked_objects_past, _ = sampled_tracked_objects_to_array_list(neighbor_past)
-         static_objects, static_objects_types =sampled_static_objects_to_array_list(neighbor_past[-1])
-         tracked_objects_list = []
-         for tracked_object in tracked_objects:
-            tracked_objects_list.append(tracked_object)
-         _, neighbor_past, _, static_objects = agent_past_process(None, tracked_objects, tracked_objects_types, self.num_agents,\
-                                                                  static_objects, static_objects_types, \
-                                                                  self.num_static, self.max_ped_bike, anchor_ego_state)
-
+         neighbor_past = list(self.scenario.get_past_tracked_objects(iteration= 0, time_horizon=self.past_time_horizon, num_samples =self.num_past_poses))
+         neighbor_future = list(self.scenario.get_future_tracked_objects(iteration= 0, time_horizon=self.future_time_horizon, num_samples =self.num_future_poses))
+         neighbor_states = neighbor_past + [neighbors] + neighbor_future #global coords
+         padded_neighbor_states = self.process_tracked_objects(neighbor_states, int(1 + (self.past_time_horizon + self.future_time_horizon + self.pred_horizon)*10), 10)
+         padded_neighbor_states_array = np.array(list(padded_neighbor_states.values()))
+         local_padded_neighbor_states_array = []
+         for i in range(len(padded_neighbor_states_array)):
+            local_padded_neighbor_states_array.append(np.array(convert_absolute_quantities_to_relative(padded_neighbor_states_array[i, :, :], anchor_ego_state, 'pos_heading_only')))
+        #  for key, value in
+         local_padded_neighbor_states_array = np.array(local_padded_neighbor_states_array)
+         local_padded_neighbor_agents_past_array = local_padded_neighbor_states_array[:, :self.num_past_poses + 1, ...]
+        #  local_padded_neighbor_agents_future_array = local_padded_neighbor_states_array[:, self.num_past_poses +1: , ...]
+         """
+         static agents
+         """
+        #  tracked_objects, tracked_objects_types = sampled_tracked_objects_to_tensor(neighbors.tracked_objects)
+         static_objects, _ = sampled_static_objects_to_array_list(neighbor_past[-1])
+         local_static_object = convert_absolute_quantities_to_relative(static_objects, anchor_ego_state, 'static')
          """
          map
          """
@@ -222,15 +236,15 @@ class DataProcessor(object):
          traffic_light_data = self.scenario.get_traffic_light_status_at_iteration(iteration= 0)
          coords, traffic_light_data, speed_limit, lane_route =get_neighbor_vector_set_map(
                       self.map_api, self._map_features, ego_coords, self._radius, traffic_light_data)
-         vector_map = map_process(route_roadblocks_ids, anchor_ego_state, coords, traffic_light_data, speed_limit, lane_route, processor._map_features,
+         vector_map = map_process(route_roadblocks_ids, anchor_ego_state, coords, traffic_light_data, speed_limit, lane_route, self._map_features,
                                       self._max_elements, self._max_points)
          """
          data convert
          """
-         data = {"neighbor_agents_past": neighbor_past[:, -21:],
+         data = {"neighbor_agents_past": local_padded_neighbor_agents_past_array,
         "ego_current_state": np.array([0., 0., 1. ,0.], dtype=np.float32), # ego centric x, y, cos, sin
-        "static_objects": static_objects,
-        "sample_ego_states": sample_ego_states}
+        "static_objects": local_static_object,
+        "padded_neighbor_states": local_padded_neighbor_states_array}
          data.update(vector_map)
          data = convert_to_model_inputs(data, self.device)
 
@@ -245,11 +259,11 @@ class DataProcessor(object):
 
 
 if __name__ == "__main__":
-  map_version = "nuplan-maps-v1.0"
-  data_path = "/share/data_cold/open_data/nuplan/nuplan-v1.1/trainval_sorted/folder_5"
+  map_version = "nuplan-maps-v1.1"
+  data_path = "/share/data_cold/open_data/nuplan/nuplan-v1.1/trainval_sorted/folder_1"
   map_path = "/share/data_cold/open_data/nuplan/maps"
-  save_path = "/share/data_cold/abu_zone/multi_sensor_fusion/fusion/laneline/train/nuplan_processed/folder_5"
-  total_scenarios = 100000
+  save_path = "/share/data_cold/abu_zone/multi_sensor_fusion/fusion/laneline/train/nuplan_processed/folder_1"
+  total_scenarios = 10
   scenario_mapping = ScenarioMapping(scenario_map=get_scenario_map(), subsample_ratio_override=0.5)
   builder = NuPlanScenarioBuilder(data_path, map_path, None, None, map_version, scenario_mapping = scenario_mapping)
   worker = SingleMachineParallelExecutor(use_process_pool=True, max_workers = 128)
