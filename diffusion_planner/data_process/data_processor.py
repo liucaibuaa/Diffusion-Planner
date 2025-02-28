@@ -1,5 +1,5 @@
 import numpy as np
-
+import argparse
 from nuplan.common.actor_state.vehicle_parameters import get_pacifica_parameters
 from nuplan.common.actor_state.state_representation import Point2D
 from nuplan.planning.scenario_builder.nuplan_db.nuplan_scenario_utils import ScenarioMapping
@@ -137,17 +137,18 @@ class DataProcessor(object):
 
         return past_tracked_objects_tensor_list, past_tracked_objects_types
 
-    def add_agent_traj_noise(origin_traj : np.array, sde:SDE, device):
+    def add_agent_traj_noise(self, origin_traj: np.array, sde:SDE):
+       device = self.device
        P, T, D = origin_traj.shape # P: agent num， T: frame nums, D: dim
        assert D == 4  #x, y, cos, sin
        origin_traj_tensor = torch.tensor(origin_traj, dtype=torch.float32).to(device)
 
-       t = torch.rand(origin_traj.shape[0])
+       t = torch.rand(origin_traj.shape[0], device = device)
        mean, std = sde.marginal_prob(origin_traj_tensor, t)
 
-       noisy_traj = torch.zeros_like(mean)
+       noisy_traj = torch.zeros_like(mean).to(device)
        noisy_traj = mean + std*noisy_traj
-       theta_norm = torch.sqrt(noisy_traj[:,:,2]**2 + noisy_traj[:,:,3]**2 + 1e-6)
+       theta_norm = torch.sqrt(noisy_traj[:,:,2]**2 + noisy_traj[:,:,3]**2 + 1e-6).to(device)
        noisy_traj[:,:,2] /= theta_norm
        noisy_traj[:,:,3] /= theta_norm
 
@@ -155,7 +156,7 @@ class DataProcessor(object):
 
 
 
-    def work(self, save_dir, debug=False, device = 'cpu'):
+    def work(self, save_dir, debug=False):
       for scenario in tqdm(self._scenarios):
          map_name = scenario._map_name
          token = scenario.token
@@ -185,7 +186,7 @@ class DataProcessor(object):
          future_ego_states_numpy =np.concatenate((local_ego_current_state_array,future_ego_states_numpy),axis = 0)
          future_ego_noise_traj =np.array([ np.concatenate((future_ego_states_numpy[:, :2], np.cos(future_ego_states_numpy[:, 3:4]), np.sin(future_ego_states_numpy[:, 3:4])), \
                                                 axis =1)])
-         future_ego_noise_traj, ego_diffusion_time = self.add_agent_traj_noise(future_ego_noise_traj, sde, device=device)
+         future_ego_noise_traj, ego_diffusion_time = self.add_agent_traj_noise(future_ego_noise_traj, sde)
 
          """
          neighbor agents
@@ -207,7 +208,7 @@ class DataProcessor(object):
          objects_tokens = [tracked_obj_tokens[key] for key in selected_indices]
 
          neighbor_future = list(self.scenario.get_future_tracked_objects(iteration= 0, time_horizon=self.future_time_horizon, num_samples =self.num_future_poses))
-         slected_objs_future_traj = np.full((len(neighbor_future), len(objects_tokens), 11), np.nan, dtype=np.float64)
+         slected_objs_future_traj = np.full((len(neighbor_future), len(neighbor_past), 11), np.nan, dtype=np.float64)
          for frame_id in range(len(neighbor_future)):
             tracked_objects = neighbor_future[frame_id]
             current_frame_tracked_objects = {tracked_object.track_token: tracked_object for tracked_object in tracked_objects.tracked_objects}
@@ -259,7 +260,7 @@ class DataProcessor(object):
          """
          add noise to agent traj
          """
-         agent_noisy_traj, agent_diffusion_time = self.add_agent_traj_noise(slected_objs_future_traj, sde, device)
+         agent_noisy_traj, agent_diffusion_time = self.add_agent_traj_noise(slected_objs_future_traj, sde)
          pad_ego_agent_noisy_traj = torch.concat((future_ego_noise_traj, agent_noisy_traj), dim=0)
          pad_ego_agent_diffusion_time = torch.concat((ego_diffusion_time, agent_diffusion_time), dim=0)
 
@@ -285,23 +286,28 @@ class DataProcessor(object):
          file_path = os.path.join(save_dir, file_name)
          torch.save(data, file_path)
 
-
+def main(data_path, save_path, total_scenarios=100000, map_version="nuplan-maps-v1.0"):
+    map_path = "/share/data_cold/open_data/nuplan/maps"
+    scenario_mapping = ScenarioMapping(scenario_map=get_scenario_map(), subsample_ratio_override=0.5)
+    builder = NuPlanScenarioBuilder(data_path, map_path, None, None, map_version, scenario_mapping=scenario_mapping)
+    worker = SingleMachineParallelExecutor(use_process_pool=True, max_workers=128)
+    scenario_filter = ScenarioFilter(*get_filter_parameters(num_scenarios_per_type=100000, limit_total_scenarios=total_scenarios))
+    scenarios = builder.get_scenarios(scenario_filter, worker)
+    del worker, builder, scenario_filter
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    processor = DataProcessor(scenarios, device)
+    processor.work(save_path, debug=False)
 
 if __name__ == "__main__":
-  map_version = "nuplan-maps-v1.0"
-  data_path = "/share/data_cold/open_data/nuplan/nuplan-v1.1/trainval_sorted/folder_1"
-  map_path = "/share/data_cold/open_data/nuplan/maps"
-  save_path = "/share/data_cold/abu_zone/multi_sensor_fusion/fusion/laneline/train/nuplan_processed/folder_1"
-  total_scenarios = 30000
-  scenario_mapping = ScenarioMapping(scenario_map=get_scenario_map(), subsample_ratio_override=0.5)
-  builder = NuPlanScenarioBuilder(data_path, map_path, None, None, map_version, scenario_mapping = scenario_mapping)
-  worker = SingleMachineParallelExecutor(use_process_pool=True, max_workers = 128)
-  scenario_filter = ScenarioFilter(*get_filter_parameters(num_scenarios_per_type=30000,
-                                                            limit_total_scenarios=total_scenarios))
-  scenarios = builder.get_scenarios(scenario_filter, worker)
-  del worker, builder, scenario_filter
-  device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-  processor = DataProcessor(scenarios, device)
-  processor.work(save_path, debug=False, device = device)
+  # 使用 argparse 获取命令行参数
+    parser = argparse.ArgumentParser(description="Process data and save the processed results")
+    parser.add_argument('--data_path', type=str, required=True, help="Path to the data directory")
+    parser.add_argument('--save_path', type=str, required=True, help="Path to the save directory")
+    parser.add_argument('--total_scenarios', type=int, default=100000, help="Total number of scenarios to process")
+    parser.add_argument('--map_version', type=str, default="nuplan-maps-v1.0", help="Map version")
 
+    # 解析命令行参数
+    args = parser.parse_args()
 
+    # 传入命令行参数
+    main(args.data_path, args.save_path, total_scenarios=args.total_scenarios, map_version=args.map_version)
