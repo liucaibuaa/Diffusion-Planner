@@ -36,6 +36,8 @@ from nuplan.planning.training.preprocessing.utils.agents_preprocessing import (
     pad_agent_states
 )
 import os, torch
+
+from diffusion_planner.model.diffusion_utils.sde import SDE, VPSDE_linear
 class DataProcessor(object):
     def __init__(self, scenarios, device):
 
@@ -134,13 +136,32 @@ class DataProcessor(object):
             sampled_tracked_objects_to_tensor_list(sampled_past_observations)
 
         return past_tracked_objects_tensor_list, past_tracked_objects_types
-    def work(self, save_dir, debug=False):
+
+    def add_agent_traj_noise(origin_traj : np.array, sde:SDE, device):
+       P, T, D = origin_traj.shape # P: agent num， T: frame nums, D: dim
+       assert D == 4  #x, y, cos, sin
+       origin_traj_tensor = torch.tensor(origin_traj, dtype=torch.float32).to(device)
+
+       t = torch.rand(origin_traj.shape[0])
+       mean, std = sde.marginal_prob(origin_traj_tensor, t)
+
+       noisy_traj = torch.zeros_like(mean)
+       noisy_traj = mean + std*noisy_traj
+       theta_norm = torch.sqrt(noisy_traj[:,:,2]**2 + noisy_traj[:,:,3]**2 + 1e-6)
+       noisy_traj[:,:,2] /= theta_norm
+       noisy_traj[:,:,3] /= theta_norm
+
+       return noisy_traj, t #tensor
+
+
+
+    def work(self, save_dir, debug=False, device = 'cpu'):
       for scenario in tqdm(self._scenarios):
          map_name = scenario._map_name
          token = scenario.token
          self.scenario = scenario
          self.map_api = scenario.map_api
-
+         sde = VPSDE_linear()
          """
          ego
          """
@@ -156,6 +177,16 @@ class DataProcessor(object):
                             ego_state.dynamic_car_state.rear_axle_velocity_2d.x, ego_state.dynamic_car_state.rear_axle_velocity_2d.y,\
                             ego_state.dynamic_car_state.rear_axle_acceleration_2d.x, ego_state.dynamic_car_state.rear_axle_acceleration_2d.y ) for ego_state in future_ego_states], dtype = np.float64)
          local_future_ego_states = convert_absolute_quantities_to_relative(future_ego_states_numpy, anchor_ego_state,'ego')
+
+         ego_current_state_array = np.array([(ego_state.rear_axle.x, ego_state.rear_axle.y, ego_state.rear_axle.heading, \
+                  ego_state.dynamic_car_state.rear_axle_velocity_2d.x, ego_state.dynamic_car_state.rear_axle_velocity_2d.y,\
+                  ego_state.dynamic_car_state.rear_axle_acceleration_2d.x, ego_state.dynamic_car_state.rear_axle_acceleration_2d.y )], dtype = np.float64)
+         local_ego_current_state_array = convert_absolute_quantities_to_relative(ego_current_state_array, anchor_ego_state,'ego')
+         future_ego_states_numpy =np.concatenate((local_ego_current_state_array,future_ego_states_numpy),axis = 0)
+         future_ego_noise_traj =np.array([ np.concatenate((future_ego_states_numpy[:, :2], np.cos(future_ego_states_numpy[:, 3:4]), np.sin(future_ego_states_numpy[:, 3:4])), \
+                                                axis =1)])
+         future_ego_noise_traj, ego_diffusion_time = self.add_agent_traj_noise(future_ego_noise_traj, sde, device=device)
+
          """
          neighbor agents
          """
@@ -204,8 +235,13 @@ class DataProcessor(object):
                 else:  # TrackedObjectType.BICYCLE
                   local_agent_state[:, 8:] = [0, 0, 1]  # Mark as BICYCLE
                 slected_objs_future_traj[frame_id, i, :] = local_agent_state
-         slected_objs_future_traj = slected_objs_future_traj.transpose(1, 0, 2) # (num_neghbor, frames, data_dim)
-
+         slected_objs_future_traj = slected_objs_future_traj.transpose(1, 0, 2) # (num_neghbor, current_frame + future_frames , data_dim)
+         slected_objs_future_traj = np.concatenate((neighbor_past, slected_objs_future_traj),axis = 1)
+         slected_objs_future_traj = np.concatenate((
+            slected_objs_future_traj[:,:, :2],
+            np.cos(slected_objs_future_traj[:,:, 3:4]),
+            np.sin(slected_objs_future_traj[:,:, 3:4])
+            ), axis=2)
          """
          map
          """
@@ -217,8 +253,16 @@ class DataProcessor(object):
          traffic_light_data = self.scenario.get_traffic_light_status_at_iteration(iteration= 0)
          coords, traffic_light_data, speed_limit, lane_route =get_neighbor_vector_set_map(
                       self.map_api, self._map_features, ego_coords, self._radius, traffic_light_data)
-         vector_map = map_process(route_roadblocks_ids, anchor_ego_state, coords, traffic_light_data, speed_limit, lane_route, processor._map_features,
+         vector_map = map_process(route_roadblocks_ids, anchor_ego_state, coords, traffic_light_data, speed_limit, lane_route, self._map_features,
                                       self._max_elements, self._max_points)
+
+         """
+         add noise to agent traj
+         """
+         agent_noisy_traj, agent_diffusion_time = self.add_agent_traj_noise(slected_objs_future_traj, sde, device)
+         pad_ego_agent_noisy_traj = torch.concat((future_ego_noise_traj, agent_noisy_traj), dim=0)
+         pad_ego_agent_diffusion_time = torch.concat((ego_diffusion_time, agent_diffusion_time), dim=0)
+
          """
          data convert
          """
@@ -226,7 +270,10 @@ class DataProcessor(object):
         "ego_current_state": np.array([0., 0., 1. ,0.], dtype=np.float32), # ego centric x, y, cos, sin
         "static_objects": static_objects,
         'neighbor_future_traj':slected_objs_future_traj,
-        'ego_future_traj': local_future_ego_states}
+        'ego_future_traj': local_future_ego_states,
+        'sampled_trajectories': pad_ego_agent_noisy_traj,
+        'diffusion_time': pad_ego_agent_diffusion_time
+        }
          data.update(vector_map)
          data = convert_to_model_inputs(data, self.device)
 
@@ -255,6 +302,6 @@ if __name__ == "__main__":
   del worker, builder, scenario_filter
   device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
   processor = DataProcessor(scenarios, device)
-  processor.work(save_path, debug=False)
+  processor.work(save_path, debug=False, device = device)
 
 

@@ -278,7 +278,9 @@ def vector_set_coordinates_to_local_frame(
 def convert_to_model_inputs(data, device):
     tensor_data = {}
     for k, v in data.items():
-        if isinstance(v, np.ndarray) and v.dtype == np.bool_:
+        if isinstance(v, torch.Tensor):
+            tensor_data[k] = v.to(device)
+        elif isinstance(v, np.ndarray) and v.dtype == np.bool_:
             tensor_data[k] = torch.tensor(v, dtype=torch.bool).unsqueeze(0).to(device)
         else:
             tensor_data[k] = torch.tensor(v, dtype=torch.float32).unsqueeze(0).to(device)
