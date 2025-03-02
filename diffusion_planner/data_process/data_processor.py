@@ -240,8 +240,8 @@ class DataProcessor(object):
          slected_objs_future_traj = np.concatenate((neighbor_past, slected_objs_future_traj),axis = 1)
          slected_objs_future_traj = np.concatenate((
             slected_objs_future_traj[:,:, :2],
-            np.cos(slected_objs_future_traj[:,:, 3:4]),
-            np.sin(slected_objs_future_traj[:,:, 3:4])
+            np.cos(slected_objs_future_traj[:,:, 2:3]),
+            np.sin(slected_objs_future_traj[:,:, 2:3])
             ), axis=2)
          """
          map
